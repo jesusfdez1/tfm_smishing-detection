@@ -197,4 +197,189 @@ A thoroughly documented dataset containing high-quality, real-world user reports
 | `scam_type` / `lure_principles` | *String* | Social engineering tactic category (e.g., delivery, urgency, financial). |
 
 **Primary Citation & DOI:**  
-> Agarwal, S., Papasavva, A., Suarez-Tangil, G., & Vasek, M
+> Agarwal, S., Papasavva, A., Suarez-Tangil, G., & Vasek, M. (2025). Fishing for Smishing: Understanding SMS Phishing Infrastructure and Strategies by Mining Public User Reports. *Proceedings of the 2025 ACM on Internet Measurement Conference*.
+> **DOI/URL:** https://doi.org/10.1145/3730567.3764431
+
+**Additional Notes:**  
+This dataset is heavily focused on the social engineering aspects and the infrastructure of the attacks. Very useful for feature engineering related to attack types.
+
+---
+
+## 7. UCI SMS Spam Collection
+
+**Overview:**  
+The foundational benchmark dataset for SMS spam research. Curated by Almeida et al. from various sources including Grumbletext and the NUS SMS Corpus.
+
+**Key Statistics:**  
+- **Total Records:** 5,574 messages  
+- **Class Distribution:** 4,827 Ham | 747 Spam  
+- **Version:** v.1 (2011)  
+- **Authors/Institution:** Tiago A. Almeida & José María Gómez Hidalgo  
+
+**Storage & Format:**  
+- **Location:** `data/raw/almeida_2011_uci_sms_spam/`  
+- **Format:** TSV (tab-separated values in `SMSSpamCollection` file)  
+- **Structure:** Two columns: label (`ham` or `spam`) and raw text.
+
+**Data Dictionary:**  
+| Attribute | Type | Description |
+| :--- | :---: | :--- |
+| `label` | *Categorical* | Ground truth classification: `ham` or `spam`. |
+| `text` | *String* | Raw textual content of the message. |
+
+**Primary Citation & DOI:**  
+> Almeida, T.A., Gómez Hidalgo, J.M., Yamakami, A. (2011). Contributions to the Study of SMS Spam Filtering: New Collection and Results. *Proceedings of the 2011 ACM Symposium on Document Engineering (DOCENG'11)*.  
+> **DOI/URL:** https://archive.ics.uci.edu/dataset/228/sms+spam+collection
+
+---
+
+## 8. NUS SMS Corpus
+
+**Overview:**  
+A large corpus of legitimate conversational SMS messages collected by the National University of Singapore, largely from students.
+
+**Key Statistics:**  
+- **Total Records:** ~67,000 messages  
+- **Class Distribution:** 100% Ham (Legitimate)  
+- **Version:** 1.2 (2015)  
+- **Authors/Institution:** Tao Chen & Min-Yen Kan / National University of Singapore  
+
+**Storage & Format:**  
+- **Location:** `data/raw/nus_2015_sms_corpus_en.json`  
+- **Format:** JSON  
+- **Structure:** Deeply nested JSON structure containing message details, sender metadata, and timestamps.
+
+**Data Dictionary:**  
+| Attribute | Type | Description |
+| :--- | :---: | :--- |
+| `text` | *String* | Raw textual content of the message. |
+| `source` | *JSON* | Metadata about the sender (anonymized phone model, etc.). |
+
+**Primary Citation & DOI:**  
+> Chen, T. and Kan, M.-Y. (2013). Creating a Live, Public Short Message Service Corpus: The NUS SMS Corpus. *Language Resources and Evaluation*, 47(2), 299-355.  
+> **DOI/URL:** https://doi.org/10.1007/s10579-012-9197-9
+
+---
+
+## 9. Kaggle Combined Spam/Ham Dataset
+
+**Overview:**  
+An aggregation of SMS spam and ham messages sourced from Kaggle. Likely a derivative work combining datasets like the UCI SMS Spam Collection with other sources.
+
+**Key Statistics:**  
+- **Total Records:** ~10,800 messages  
+- **Class Distribution:** Spam and Ham  
+- **Authors/Institution:** Unknown (Kaggle Community)  
+
+**Storage & Format:**  
+- **Location:** `data/raw/kaggle_unknown_combined_spam_ham.csv`  
+- **Format:** CSV  
+- **Structure:** Simple tabular data.
+
+**Data Dictionary:**  
+| Attribute | Type | Description |
+| :--- | :---: | :--- |
+| `target` | *Categorical* | Ground truth classification: `spam` or `ham`. |
+| `text` | *String* | Message content. |
+
+---
+
+## 10. Kaggle Phishing Dataset with Categories
+
+**Overview:**  
+A small, specialized dataset categorizing phishing/smishing messages by the social engineering tactic used (e.g., urgency, authority).
+
+**Key Statistics:**  
+- **Total Records:** 1,001 messages  
+- **Class Distribution:** Phishing  
+- **Authors/Institution:** Unknown (Kaggle Community)  
+
+**Storage & Format:**  
+- **Location:** `data/raw/kaggle_unknown_phishing_categories.csv`  
+- **Format:** CSV  
+- **Structure:** Text and tactical category labels.
+
+**Data Dictionary:**  
+| Attribute | Type | Description |
+| :--- | :---: | :--- |
+| `text` | *String* | Message content. |
+| `category` | *Categorical* | Tactic used (e.g., urgency, authority). |
+| `label` | *Categorical* | Base classification (`phishing`). |
+
+---
+
+## 11. Enron Spam Dataset
+
+**Overview:**  
+A massive collection of spam and ham *emails* from the Enron corpus. While not SMS, the textual patterns are often used in generic spam classification models.
+
+**Key Statistics:**  
+- **Total Records:** 33,716 emails  
+- **Class Distribution:** 17,171 Spam | 16,545 Ham  
+- **Version:** 2006 (Metsis et al.)  
+- **Authors/Institution:** V. Metsis, I. Androutsopoulos, and G. Paliouras  
+
+**Storage & Format:**  
+- **Location:** `data/raw/metsis_2006_enron_spam.csv`  
+- **Format:** CSV  
+- **Structure:** Emails organized into subject, message body, label, and date.
+
+**Data Dictionary:**  
+| Attribute | Type | Description |
+| :--- | :---: | :--- |
+| `Subject` | *String* | Email subject line. |
+| `Message` | *String* | Email body content. |
+| `Spam/Ham` | *Categorical* | Label: `spam` or `ham`. |
+| `Date` | *Date* | Arrival date. |
+
+**Primary Citation & DOI:**  
+> Metsis, V., Androutsopoulos, I. and Paliouras, G. (2006). Spam Filtering with Naive Bayes - Which Naive Bayes? *CEAS*.  
+
+---
+
+## 12. Malicious-Benign SMS/MMS Dataset
+
+**Overview:**  
+A large-scale, highly engineered dataset designed for DeBERTa training. It combines real data (Discord messages, UCI, SpamDam) with heavily generated synthetic data using various LLMs to create balanced smishing classes.
+
+**Key Statistics:**  
+- **Total Records:** Up to 813,546 rows (depends on specific CSV used)  
+- **Class Distribution:** Highly structured (base: ~365K Benign, ~76K Spam)  
+- **Version:** v3  
+- **Authors/Institution:** Unknown (HuggingFace Community Source)  
+
+**Storage & Format:**  
+- **Location:** `data/raw/malicious_benign_sms_mms/`  
+- **Format:** Directory containing multiple CSVs and synthetic generation scripts.  
+- **Structure:** Includes base text features, labels, and pre-computed engineered features (e.g., character entropies).
+
+**Data Dictionary:**  
+| Attribute | Type | Description |
+| :--- | :---: | :--- |
+| `message` | *String* | Full payload content. |
+| `label` | *Binary* | `0` = Benign, `1` = Spam/Smishing. |
+| `ai_generated` | *Binary* | `0` = Human-written, `1` = AI-generated. |
+| `[features]` | *Various* | Dozens of engineered NLP features (e.g., `char_count`, `urgency_score`). |
+
+---
+
+## 13. Spanish Spam/Ham Dataset
+
+**Overview:**  
+A small dataset specifically containing messages in Spanish. Rare resource useful for multi-lingual model tuning.
+
+**Key Statistics:**  
+- **Total Records:** 1,209 messages (999 train + 210 test)  
+- **Class Distribution:** Spam and Ham  
+- **Authors/Institution:** Unknown (HuggingFace Community Source)  
+
+**Storage & Format:**  
+- **Location:** `data/raw/spanish_spam_ham/`  
+- **Format:** Directory with `train.csv` and `test.csv`  
+- **Structure:** Basic text and label layout.
+
+**Data Dictionary:**  
+| Attribute | Type | Description |
+| :--- | :---: | :--- |
+| `mensaje` | *String* | Message content in Spanish. |
+| `tipo` | *Categorical* | Label: `spam` or `ham`. |
