@@ -1,0 +1,7 @@
+pandas>=2.2.0
+requests>=2.31.0
+# Load API keys from .env
+python-dotenv>=1.0.1
+# Optional: pycld3>=0.22 (requires protoc and build tools on Windows)
+langdetect>=1.0.9
+langid>=1.1.6

@@ -4,6 +4,7 @@ import logging
 import datetime
 import requests
 from typing import Dict, Any
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -35,13 +36,30 @@ class LLMMetadataAnnotator:
         12: "Family Emergency/Scam"
     }
 
-    def __init__(self, use_mock: bool = False):
-        self.api_key = os.environ.get("GEMINI_API_KEY")
+    def __init__(self, use_mock: bool = False, model_name: str | None = None):
+        load_dotenv()
+        api_keys_env = os.environ.get("GEMINI_API_KEYS")
+        if api_keys_env:
+            self.api_keys = [key.strip() for key in api_keys_env.split(",") if key.strip()]
+        else:
+            single_key = os.environ.get("GEMINI_API_KEY")
+            self.api_keys = [single_key] if single_key else []
+        self.api_key_index = 0
         self.use_mock = use_mock
+        self.model_name = model_name or self.MODEL_NAME
         
-        if not self.api_key and not self.use_mock:
-            logger.warning("GEMINI_API_KEY not found. LLM enrichment will run in MOCK mode.")
+        if not self.api_keys and not self.use_mock:
+            logger.warning("No GEMINI_API_KEY(S) found. LLM enrichment will run in MOCK mode.")
             self.use_mock = True
+
+    def _iter_api_keys(self):
+        if not self.api_keys:
+            return []
+        total = len(self.api_keys)
+        return [
+            (idx, self.api_keys[idx])
+            for idx in [(self.api_key_index + offset) % total for offset in range(total)]
+        ]
 
     def _get_system_prompt(self) -> str:
         themes_str = "\n".join([f"{k}: {v}" for k, v in self.THEMES.items()])
@@ -106,41 +124,58 @@ Respond ONLY with valid JSON. No markdown, no explanations."""
         if self.use_mock:
             llm_response = self._mock_enrich(text)
         else:
-            try:
-                # Direct REST call to Gemini 2.5 Flash
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.MODEL_NAME}:generateContent?key={self.api_key}"
-                
-                payload = {
-                    "system_instruction": {
-                        "parts": [{"text": self._get_system_prompt()}]
-                    },
-                    "contents": [{
-                        "parts": [{"text": f"SMS to analyze: {text}"}]
-                    }],
-                    "generationConfig": {
-                        "temperature": 0.0,
-                        "response_mime_type": "application/json"
-                    }
+            payload = {
+                "system_instruction": {
+                    "parts": [{"text": self._get_system_prompt()}]
+                },
+                "contents": [{
+                    "parts": [{"text": f"SMS to analyze: {text}"}]
+                }],
+                "generationConfig": {
+                    "temperature": 0.0,
+                    "response_mime_type": "application/json"
                 }
-                
-                response = requests.post(url, json=payload, timeout=10)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    response_text = data['candidates'][0]['content']['parts'][0]['text']
-                    llm_response = json.loads(response_text)
-                else:
-                    logger.error(f"Gemini API Error {response.status_code}: {response.text}")
-                    llm_response = self._mock_enrich(text) # Fallback to mock
-                    
-            except Exception as e:
-                logger.error(f"LLM Annotation Failed: {str(e)}")
-                llm_response = self._mock_enrich(text) # Fallback to mock
+            }
+
+            for index, api_key in self._iter_api_keys():
+                try:
+                    url = (
+                        f"https://generativelanguage.googleapis.com/v1beta/models/"
+                        f"{self.model_name}:generateContent?key={api_key}"
+                    )
+                    response = requests.post(url, json=payload, timeout=10)
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        response_text = data['candidates'][0]['content']['parts'][0]['text']
+                        llm_response = json.loads(response_text)
+                        self.api_key_index = index
+                        break
+
+                    if response.status_code == 429 or response.status_code >= 500:
+                        logger.warning(
+                            "Gemini API rate/availability issue (%s). Rotating API key.",
+                            response.status_code,
+                        )
+                        self.api_key_index = (index + 1) % len(self.api_keys)
+                        continue
+
+                    logger.error("Gemini API Error %s: %s", response.status_code, response.text)
+                    break
+
+                except Exception as e:
+                    logger.warning("LLM request failed, rotating API key: %s", str(e))
+                    if self.api_keys:
+                        self.api_key_index = (index + 1) % len(self.api_keys)
+                    continue
+
+            if not llm_response:
+                llm_response = self._mock_enrich(text)
 
         if llm_response:
             result.update({
                 "llm_annotated": 1,
-                "llm_model": self.MODEL_NAME if not self.use_mock else "mock-heuristic",
+                "llm_model": self.model_name if not self.use_mock else f"mock-{self.model_name}",
                 "prompt_version": self.PROMPT_VERSION,
                 "llm_annotation_date": datetime.datetime.now().strftime("%Y-%m-%d"),
                 "language": llm_response.get("language", "unknown")[:2].lower(),
