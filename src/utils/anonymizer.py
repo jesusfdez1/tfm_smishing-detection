@@ -16,8 +16,11 @@ logger = logging.getLogger(__name__)
 
 class SMSAnonymizer:
     """
-    Script to strictly anonymize raw SMS datasets.
-    Replaces PII and structured entities with flat tags to prepare data for ML.
+    Anonymizes SMS text by masking PII and structured identifiers.
+    Supports regex-based masking and an optional privacy-filter model.
+
+    The output keeps a simple replacement-token scheme (e.g., <EMAIL>, <URL>)
+    so downstream feature extraction and model inputs remain consistent.
     """
     # Map privacy-filter labels to replacement tokens used in the dataset.
     PRIVACY_LABEL_MAP = {
@@ -37,6 +40,11 @@ class SMSAnonymizer:
         use_privacy_filter: bool = False,
         privacy_filter_model: str = "openai/privacy-filter",
     ):
+        """Configure anonymization behavior and optional PII model.
+
+        use_whois enables WHOIS lookups for detected URLs.
+        use_privacy_filter switches from regex masking to a token classifier.
+        """
         self.use_whois = use_whois
         self.use_privacy_filter = use_privacy_filter
         self.privacy_filter_model = privacy_filter_model
@@ -45,7 +53,7 @@ class SMSAnonymizer:
         if self.use_whois and not WHOIS_AVAILABLE:
             logger.warning("WHOIS extraction requested but 'python-whois' is not installed.")
 
-        # Ordered from most specific to most generic
+        # Ordered from most specific to most generic to avoid partial matches.
         self.patterns = [
             # URLs
             # Structural Heuristic for Shorteners: Domain length <= 5 chars without TLD
@@ -79,6 +87,10 @@ class SMSAnonymizer:
             self._init_privacy_filter()
 
     def _init_privacy_filter(self) -> None:
+        """Initialize the privacy-filter pipeline if available.
+
+        If initialization fails, the anonymizer falls back to regex patterns.
+        """
         try:
             from transformers import pipeline
 
@@ -95,6 +107,10 @@ class SMSAnonymizer:
 
     @staticmethod
     def _normalize_privacy_label(label: str) -> Optional[str]:
+        """Normalize BIOES labels to their base category.
+
+        Example: B-private_email -> private_email.
+        """
         if not label:
             return None
         cleaned = label.strip().lower()
@@ -103,6 +119,10 @@ class SMSAnonymizer:
         return cleaned
 
     def _process_with_privacy_filter(self, text: str) -> Dict[str, Any]:
+        """Mask PII spans using the privacy-filter model output.
+
+        Returns a dict with original text, anonymized text, and extracted entities.
+        """
         if not self._privacy_pipe:
             return self.process_message(text)
 
@@ -152,12 +172,24 @@ class SMSAnonymizer:
         }
 
     def _decode_urls(self, text: str) -> str:
+        """Decode percent-encoded URLs before pattern matching.
+
+        This reduces false negatives when URLs are URL-encoded.
+        """
         return unquote(text)
 
     def _normalize_unicode(self, text: str) -> str:
+        """Normalize unicode to reduce obfuscation variants.
+
+        Uses NFKC to collapse compatibility characters and confusables.
+        """
         return unicodedata.normalize("NFKC", text)
 
     def _get_whois_data(self, url: str) -> Dict[str, Any]:
+        """Fetch WHOIS metadata for a URL when enabled.
+
+        Returns a small, flat dict so it can be serialized in the entities list.
+        """
         if not WHOIS_AVAILABLE or not self.use_whois:
             return {}
         try:
@@ -177,6 +209,13 @@ class SMSAnonymizer:
             return {"error": "WHOIS lookup failed"}
 
     def process_message(self, text: str) -> Dict[str, Any]:
+        """Return anonymized text and extracted entities for a single message.
+
+        The output includes:
+        - original: normalized text used for matching
+        - anonymized: text with replacement tokens
+        - entities: list of extracted spans and types
+        """
         if not isinstance(text, str):
             text = str(text)
         
@@ -225,9 +264,14 @@ class SMSAnonymizer:
         }
         
     def anonymize(self, text: str) -> str:
+        """Convenience wrapper that returns only the anonymized text."""
         return self.process_message(text)["anonymized"]
 
     def get_coverage(self) -> Dict[str, float]:
+        """Return aggregate masking statistics for the current run.
+
+        fallback_rate indicates how often no entity was detected.
+        """
         total = max(self.stats["total"], 1)
         return {
             "messages_processed": self.stats["total"],

@@ -11,9 +11,10 @@ logger = logging.getLogger(__name__)
 
 class LLMMetadataAnnotator:
     """
-    Enriches SMS messages by inferring Language, Theme, and Urgency Level
-    using Google Gemini API (gemini-2.5-flash) via REST.
-    Returns structured JSON fitting the MetaSMS-HSS schema.
+    Enriches SMS messages by inferring language, theme, and urgency.
+
+    Uses the Gemini REST API with optional API key rotation, and can fall back
+    to a local heuristic when no key is available or requests fail.
     """
     
     PROMPT_VERSION = "v1.0"
@@ -37,6 +38,7 @@ class LLMMetadataAnnotator:
     }
 
     def __init__(self, use_mock: bool = False, model_name: str | None = None):
+        """Initialize the annotator and load API keys from the environment."""
         load_dotenv()
         api_keys_env = os.environ.get("GEMINI_API_KEYS")
         if api_keys_env:
@@ -53,6 +55,7 @@ class LLMMetadataAnnotator:
             self.use_mock = True
 
     def _iter_api_keys(self):
+        """Yield API keys in a rotating order starting at the current index."""
         if not self.api_keys:
             return []
         total = len(self.api_keys)
@@ -62,6 +65,7 @@ class LLMMetadataAnnotator:
         ]
 
     def _get_system_prompt(self) -> str:
+        """Build the instruction prompt for structured JSON output."""
         themes_str = "\n".join([f"{k}: {v}" for k, v in self.THEMES.items()])
         return f"""You are an expert cybersecurity analyst annotating SMS messages for a machine learning dataset.
 Analyze the following SMS text and return a strict JSON object with EXACTLY these keys:
@@ -76,7 +80,10 @@ Themes mapping:
 Respond ONLY with valid JSON. No markdown, no explanations."""
 
     def _mock_enrich(self, text: str) -> Dict[str, Any]:
-        """Fallback mock enrichment for testing without an API key."""
+        """Fallback mock enrichment for testing without an API key.
+
+        This uses simple keyword heuristics and is not intended for production.
+        """
         text_lower = text.lower()
         theme = 0
         urgency = 0
@@ -101,8 +108,10 @@ Respond ONLY with valid JSON. No markdown, no explanations."""
 
     def annotate(self, text: str) -> Dict[str, Any]:
         """
-        Main method to annotate text.
-        Returns the enriched fields conforming to the MetaSMS-HSS schema.
+        Annotate text and return fields conforming to the MetaSMS-HSS schema.
+
+        The method rotates API keys on rate-limit or transient errors and
+        falls back to a heuristic if all attempts fail.
         """
         # Default empty structure in case of failure
         result = {

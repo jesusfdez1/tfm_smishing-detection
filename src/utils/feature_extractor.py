@@ -5,8 +5,10 @@ from typing import Dict, Any, List
 
 class URLFeatureExtractor:
     """
-    Extracts lexical and structural features from URLs to combat text parity
-    in Smishing detection. Generates numerical features for ML models.
+    Extracts lexical and structural features from URLs.
+
+    The goal is to preserve risk signal that may be lost after anonymization,
+    such as suspicious TLDs, excessive subdomains, and high-entropy strings.
     """
     
     # Highly correlated TLDs with spam/phishing (Cheap or heavily abused)
@@ -22,7 +24,7 @@ class URLFeatureExtractor:
 
     @staticmethod
     def _shannon_entropy(string: str) -> float:
-        """Calculates the Shannon entropy of a string."""
+        """Calculate Shannon entropy as a proxy for randomness/obfuscation."""
         if not string:
             return 0.0
         counts = Counter(string)
@@ -31,8 +33,10 @@ class URLFeatureExtractor:
 
     def extract_features(self, url: str) -> Dict[str, float]:
         """
-        Extracts structural features from a single URL.
-        Returns a dictionary of float/int values suitable for ML.
+        Extract structural features from a single URL.
+
+        Returns a dictionary of float values so it can be used directly
+        in downstream ML pipelines or saved to CSV.
         """
         features = {
             "url_length": 0.0,
@@ -81,8 +85,10 @@ class URLFeatureExtractor:
 
     def aggregate_features(self, urls: List[str]) -> Dict[str, float]:
         """
-        Aggregates features for a message that might contain multiple URLs.
-        Takes the maximum value for risk features, and average for others.
+        Aggregate features for a list of URLs in one message.
+
+        Uses max for risk indicators so a single suspicious URL dominates,
+        and keeps a count of the total URLs detected.
         """
         base_features = {
             "max_url_length": 0.0,

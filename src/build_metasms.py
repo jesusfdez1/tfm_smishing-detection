@@ -119,6 +119,7 @@ SOURCE_META = {
 
 
 def clean_str(value: Any) -> Optional[str]:
+    """Normalize a value to a stripped string or return None for empties."""
     if value is None:
         return None
     text = str(value).strip()
@@ -126,6 +127,7 @@ def clean_str(value: Any) -> Optional[str]:
 
 
 def normalize_language(value: Optional[str]) -> Optional[str]:
+    """Normalize language names to ISO-639-1 codes when possible."""
     if not value:
         return None
     raw = str(value).strip().lower()
@@ -135,6 +137,7 @@ def normalize_language(value: Optional[str]) -> Optional[str]:
 
 
 def map_label_basic(value: Optional[str]) -> Optional[str]:
+    """Map common raw labels to the canonical ham/spam/smishing classes."""
     if not value:
         return None
     raw = str(value).strip().lower()
@@ -148,6 +151,7 @@ def map_label_basic(value: Optional[str]) -> Optional[str]:
 
 
 def map_binary_label(value: Any, positive_label: str) -> Optional[str]:
+    """Map binary labels (0/1 or yes/no) to a target class or ham."""
     if value is None:
         return None
     raw = str(value).strip().lower()
@@ -159,6 +163,7 @@ def map_binary_label(value: Any, positive_label: str) -> Optional[str]:
 
 
 def iso_from_epoch_ms(value: Any) -> Optional[str]:
+    """Convert epoch milliseconds to an ISO timestamp string."""
     if value is None:
         return None
     try:
@@ -169,6 +174,7 @@ def iso_from_epoch_ms(value: Any) -> Optional[str]:
 
 
 def iter_csv_dicts(path: Path, chunk_size: int, **kwargs: Any) -> Iterable[Dict[str, Any]]:
+    """Yield dict rows from a CSV using chunked reads for large files."""
     for chunk in pd.read_csv(
         path,
         chunksize=chunk_size,
@@ -184,17 +190,20 @@ def iter_csv_dicts(path: Path, chunk_size: int, **kwargs: Any) -> Iterable[Dict[
 
 
 def clean_for_llm(text: str, cleaner: DatasetCleaner, anonymizer: SMSAnonymizer) -> str:
+    """Clean and anonymize text to reduce PII exposure in LLM calls."""
     cleaned = cleaner.clean(text).get("cleaned", text)
     return anonymizer.process_message(cleaned).get("anonymized", cleaned)
 
 
 def detect_pre_anonymized(text: str) -> bool:
+    """Detect placeholder tokens that indicate prior anonymization."""
     if not text:
         return False
     return bool(re.search(r"<[A-Z0-9_]+>", text))
 
 
 def build_dedupe_key(text: str) -> str:
+    """Hash a normalized text string for cross-source deduplication."""
     if not text:
         return ""
     # Normalize and hash the anonymized text for cross-source deduplication.
@@ -204,6 +213,7 @@ def build_dedupe_key(text: str) -> str:
 
 
 def sanitize_token(value: str) -> str:
+    """Make a filename-safe token from arbitrary user input."""
     safe = re.sub(r"[^a-zA-Z0-9]+", "-", value.strip())
     safe = safe.strip("-").lower()
     return safe or "na"
@@ -261,6 +271,7 @@ def state_signature(
 
 
 def load_resume_state(state_path: Path) -> Dict[str, Any]:
+    """Load resume state from disk, returning an empty dict if missing."""
     if not state_path.exists():
         return {}
     try:
@@ -271,6 +282,7 @@ def load_resume_state(state_path: Path) -> Dict[str, Any]:
 
 
 def save_resume_state(state_path: Path, state: Dict[str, Any]) -> None:
+    """Persist resume state using a temp file for atomic writes."""
     tmp_path = state_path.with_suffix(".tmp")
     with tmp_path.open("w", encoding="utf-8") as handle:
         json.dump(state, handle, ensure_ascii=True, indent=2)
@@ -278,6 +290,7 @@ def save_resume_state(state_path: Path, state: Dict[str, Any]) -> None:
 
 
 def detect_language(text: str, hint: Optional[str]) -> Dict[str, Any]:
+    """Detect language using local libraries with a hint fallback."""
     if not text or len(text.strip()) < 4:
         if hint:
             return {"language": hint, "language_confidence": 1.0}
@@ -326,6 +339,7 @@ def detect_language(text: str, hint: Optional[str]) -> Dict[str, Any]:
 
 
 def llm_metadata(text: str, annotator: LLMMetadataAnnotator, use_llm: bool) -> Dict[str, Any]:
+    """Call an LLM annotator for theme and urgency metadata."""
     if not use_llm:
         return {
             "llm_annotated": 0,
@@ -365,6 +379,7 @@ def collect_llm_annotations(
 
 
 def llm_classify_canonical_label(text: str) -> Optional[str]:
+    """Classify a message into ham/spam/smishing using an LLM."""
     # TODO: Implement the real LLM call here and return "ham", "spam", or "smishing".
     return None
 
@@ -374,6 +389,7 @@ def resolve_canonical_label(
     use_label_llm: bool,
     label_text: str,
 ) -> Optional[str]:
+    """Resolve a canonical label, optionally using an LLM for unlabeled rows."""
     if raw_label:
         return raw_label
     if not use_label_llm:
@@ -385,6 +401,7 @@ def resolve_canonical_label(
 
 
 def parse_llm_models(value: Optional[str]) -> List[str]:
+    """Parse a comma-separated LLM list, falling back to a default model."""
     if not value:
         return [LLMMetadataAnnotator.MODEL_NAME]
     models = [model.strip() for model in value.split(",") if model.strip()]
@@ -399,6 +416,7 @@ def build_master_row(
     use_llm: bool,
     use_label_llm: bool,
 ) -> Optional[Tuple[Dict[str, Any], str]]:
+    """Build a normalized master row and return a dedupe key."""
     text = clean_str(raw.get("text"))
     if not text:
         return None
@@ -458,6 +476,7 @@ def build_master_row(
 
 
 def load_mishra(path: Path, source_name: str, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load Mishra/Soni sources with LABEL/TEXT columns."""
     for row in iter_csv_dicts(path, chunk_size=chunk_size):
         label = clean_str(row.get("LABEL") or row.get("label"))
         text = clean_str(row.get("TEXT") or row.get("text"))
@@ -479,6 +498,7 @@ def load_mishra(path: Path, source_name: str, chunk_size: int) -> Iterable[Dict[
 
 
 def load_hosseinpour(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load Hosseinpour dataset with spam and smishing binary labels."""
     for row in iter_csv_dicts(path, chunk_size=chunk_size):
         text = clean_str(row.get("message"))
         spam_label = clean_str(row.get("spam label") or row.get("spam_label"))
@@ -507,6 +527,7 @@ def load_hosseinpour(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
 
 
 def load_kaggle_spam_ham(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load Kaggle spam/ham dataset with target/text columns."""
     for row in iter_csv_dicts(path, chunk_size=chunk_size):
         label = clean_str(row.get("target"))
         text = clean_str(row.get("text"))
@@ -528,6 +549,7 @@ def load_kaggle_spam_ham(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]
 
 
 def load_kaggle_phishing(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load Kaggle phishing dataset and map to smishing."""
     for row in iter_csv_dicts(path, chunk_size=chunk_size):
         label = clean_str(row.get("label"))
         category = clean_str(row.get("category"))
@@ -553,6 +575,7 @@ def load_kaggle_phishing(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]
 
 
 def load_agarwal(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load Agarwal IMC dataset using text or translation field."""
     for row in iter_csv_dicts(path, chunk_size=chunk_size):
         text = clean_str(row.get("text")) or clean_str(row.get("translation"))
         if not text:
@@ -573,6 +596,7 @@ def load_agarwal(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
 
 
 def load_uci(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load UCI SMS Spam Collection TSV (label, text)."""
     for row in iter_csv_dicts(
         path,
         chunk_size=chunk_size,
@@ -600,6 +624,7 @@ def load_uci(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
 
 
 def load_enron(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load Enron spam/ham emails and join subject/body."""
     for row in iter_csv_dicts(path, chunk_size=chunk_size):
         label = clean_str(row.get("Spam/Ham"))
         subject = clean_str(row.get("Subject"))
@@ -624,6 +649,7 @@ def load_enron(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
 
 
 def load_nus(path: Path) -> Iterable[Dict[str, Any]]:
+    """Load the NUS SMS corpus from nested JSON."""
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         data = json.load(handle)
     messages = data.get("smsCorpus", {}).get("message", [])
@@ -650,6 +676,7 @@ def load_nus(path: Path) -> Iterable[Dict[str, Any]]:
 
 
 def load_smish(path: Path) -> Iterable[Dict[str, Any]]:
+    """Load Smishtank JSONL records and map to smishing."""
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             line = line.strip()
@@ -683,6 +710,7 @@ def load_smish(path: Path) -> Iterable[Dict[str, Any]]:
 
 
 def load_spanish(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load the Spanish spam/ham dataset with mensaje/tipo columns."""
     for row in iter_csv_dicts(path, chunk_size=chunk_size):
         label = clean_str(row.get("tipo"))
         text = clean_str(row.get("mensaje"))
@@ -704,6 +732,7 @@ def load_spanish(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
 
 
 def load_exais(path: Path) -> Iterable[Dict[str, Any]]:
+    """Load ExAIS CSV files with variable column layouts."""
     def score_cell(cell: str) -> int:
         letters = sum(ch.isalpha() for ch in cell)
         return letters
@@ -749,6 +778,7 @@ def load_exais(path: Path) -> Iterable[Dict[str, Any]]:
 
 
 def load_malicious_benign(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load malicious/benign dataset variants with message/label fields."""
     for row in iter_csv_dicts(path, chunk_size=chunk_size, usecols=["message", "label", "ai_generated"]):
         text = clean_str(row.get("message"))
         label = clean_str(row.get("label"))
@@ -771,6 +801,7 @@ def load_malicious_benign(path: Path, chunk_size: int) -> Iterable[Dict[str, Any
 
 
 def load_malicious_benign_synthetic(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load synthetic smishing records from the generator outputs."""
     for row in iter_csv_dicts(path, chunk_size=chunk_size):
         text = clean_str(row.get("message"))
         label = clean_str(row.get("label"))

@@ -11,6 +11,9 @@ class DatasetCleaner:
     Cleans raw SMS datasets by removing obfuscation tactics.
     Crucially, it preserves the ML signal by appending explicit tags 
     (e.g., <OBF_HOMOGLYPH>) when an obfuscation tactic is detected.
+
+    The output keeps the normalized text but preserves evidence of evasion
+    so models can learn that obfuscation patterns occurred.
     """
     
     # Common Cyrillic and Greek homoglyphs used in phishing mapping to Latin
@@ -65,7 +68,12 @@ class DatasetCleaner:
 
     def clean(self, text: str) -> Dict[str, Any]:
         """
-        Cleans the text and returns a dictionary with the cleaned string and detected tags.
+        Clean a single message and return normalized text plus tags.
+
+        The returned dict contains:
+        - original: the original input text
+        - cleaned: normalized text with optional obfuscation tags appended
+        - tags: list of tags that describe detected obfuscation patterns
         """
         if not isinstance(text, str):
             text = str(text)
