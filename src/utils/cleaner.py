@@ -44,6 +44,12 @@ class DatasetCleaner:
         # Regex for consecutive newlines
         self.newlines_re = re.compile(r'[\r\n]+')
         
+        # Regex for spacing obfuscation (e.g. C O R R E O S)
+        self.spacing_re = re.compile(r'\b(?:[a-zA-Z]\s){3,}[a-zA-Z]\b')
+        
+        # Regex for punctuation obfuscation (e.g. P.A.Q.U.E.T.E or c_o_r_r_e_o_s)
+        self.punct_obf_re = re.compile(r'\b(?:[a-zA-Z][.\-_]){3,}[a-zA-Z]\b')
+        
         # Fast homoglyph lookup regex
         self.homoglyph_re = re.compile('|'.join(self.HOMOGLYPH_MAP.keys()))
         
@@ -52,7 +58,9 @@ class DatasetCleaner:
             "obf_zwsp": 0,
             "obf_homoglyph": 0,
             "obf_newlines": 0,
-            "obf_font": 0
+            "obf_font": 0,
+            "obf_spacing": 0,
+            "obf_punct": 0
         }
 
     def clean(self, text: str) -> Dict[str, Any]:
@@ -80,7 +88,21 @@ class DatasetCleaner:
             trans_table = str.maketrans(self.HOMOGLYPH_MAP)
             text = text.translate(trans_table)
 
-        # 3. Detect excessive newlines (often used to hide phishing links out of view)
+        # 3. Detect spacing obfuscation (C O R R E O S)
+        if self.spacing_re.search(text):
+            tags.append("<OBF_SPACING>")
+            self.stats["obf_spacing"] += 1
+            # Remove spaces from the matched spaced-out words
+            text = self.spacing_re.sub(lambda m: m.group(0).replace(' ', ''), text)
+            
+        # 4. Detect punctuation obfuscation (P.A.Q.U.E.T.E)
+        if self.punct_obf_re.search(text):
+            tags.append("<OBF_PUNCTUATION>")
+            self.stats["obf_punct"] += 1
+            # Remove punctuation from the matched obfuscated words
+            text = self.punct_obf_re.sub(lambda m: re.sub(r'[.\-_]', '', m.group(0)), text)
+
+        # 5. Detect excessive newlines (often used to hide phishing links out of view)
         # We consider > 1 consecutive newline as an obfuscation attempt for SMS,
         # but any newline should be collapsed for dataset cleanliness.
         newline_matches = self.newlines_re.findall(text)
@@ -92,7 +114,7 @@ class DatasetCleaner:
             # Collapse all newlines and tabs to a single space
             text = re.sub(r'[\r\n\t]+', ' ', text).strip()
 
-        # 4. Unicode Normalization (NFKC)
+        # 6. Unicode Normalization (NFKC)
         # Fixes full-width chars (ｅ -> e) or math fonts (𝕮 -> C)
         normalized_text = unicodedata.normalize("NFKC", text)
         if normalized_text != text:
@@ -123,6 +145,10 @@ if __name__ == "__main__":
         "C\u200Bo\u200Br\u200Br\u200Be\u200Bo\u200Bs: Su paquete esta retenido.",
         # Cyrillic Homoglyphs (cоrrеоs using Cyrillic o and e)
         "cоrrеоs: Su paquete esta retenido.",
+        # Spacing Obfuscation
+        "Su paquete de A M A Z O N ha llegado.",
+        # Punctuation Obfuscation
+        "Actualice su cuenta de P.A.Y.P.A.L ahora.",
         # Font Obfuscation
         "𝕮𝖔𝖗𝖗𝖊𝖔𝖘: Su paquete esta retenido.",
         # Newline Obfuscation (pushing the link down)
