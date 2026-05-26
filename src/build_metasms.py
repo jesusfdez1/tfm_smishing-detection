@@ -1,3 +1,9 @@
+"""Build the MetaSMS-HSS master dataset from heterogeneous raw sources.
+
+This script handles schema normalization, anonymization, language detection,
+LLM enrichment, deduplication, and resumable execution.
+"""
+
 import argparse
 import csv
 import hashlib
@@ -20,6 +26,7 @@ from utils.llm_enricher import LLMMetadataAnnotator
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+# Output schema for the master dataset.
 MASTER_FIELDS = [
     "message_id",
     "text",
@@ -190,6 +197,7 @@ def detect_pre_anonymized(text: str) -> bool:
 def build_dedupe_key(text: str) -> str:
     if not text:
         return ""
+    # Normalize and hash the anonymized text for cross-source deduplication.
     normalized = unicodedata.normalize("NFKC", text)
     normalized = " ".join(normalized.lower().split())
     return hashlib.sha256(normalized.encode("utf-8", errors="ignore")).hexdigest()
@@ -206,13 +214,26 @@ def build_output_name(
     use_llm: bool,
     use_label_llm: bool,
     llm_models: List[str],
+    use_privacy_filter: bool,
+    privacy_filter_model: str,
     dedupe: bool,
 ) -> Path:
+    """Build an output filename that encodes the main pipeline options."""
     llm_flag = "on" if use_llm else "off"
     label_flag = "on" if use_label_llm else "off"
+    privacy_flag = "on" if use_privacy_filter else "off"
     dedupe_flag = "on" if dedupe else "off"
     model_token = "none" if not use_llm else "+".join([sanitize_token(m) for m in llm_models])
-    name = f"metasms_hss_master__llm={llm_flag}__label={label_flag}__models={model_token}__dedupe={dedupe_flag}.csv"
+    privacy_token = sanitize_token(privacy_filter_model) if use_privacy_filter else "none"
+    name = (
+        "metasms_hss_master"
+        f"__llm={llm_flag}"
+        f"__label={label_flag}"
+        f"__models={model_token}"
+        f"__privacy={privacy_flag}"
+        f"__pmodel={privacy_token}"
+        f"__dedupe={dedupe_flag}.csv"
+    )
     return output_dir / name
 
 
@@ -221,14 +242,19 @@ def state_signature(
     use_llm: bool,
     use_label_llm: bool,
     llm_models: List[str],
+    use_privacy_filter: bool,
+    privacy_filter_model: str,
     dedupe: bool,
     chunk_size: int,
 ) -> Dict[str, Any]:
+    """Return a stable signature to validate resume compatibility."""
     return {
         "raw_dir": str(raw_dir),
         "use_llm": use_llm,
         "use_label_llm": use_label_llm,
         "llm_models": llm_models,
+        "use_privacy_filter": use_privacy_filter,
+        "privacy_filter_model": privacy_filter_model,
         "dedupe": dedupe,
         "chunk_size": chunk_size,
     }
@@ -326,6 +352,7 @@ def collect_llm_annotations(
     annotators: Dict[str, LLMMetadataAnnotator],
     use_llm: bool,
 ) -> List[Dict[str, Any]]:
+    """Run all configured LLM annotators and return raw results."""
     if not use_llm or not annotators:
         return []
 
@@ -376,6 +403,7 @@ def build_master_row(
     if not text:
         return None
 
+    # Use the anonymized text for language detection, dedupe, and LLM tasks.
     llm_text = clean_for_llm(text, cleaner, anonymizer)
     if detect_pre_anonymized(text):
         anonymization_status = "pre_anonymized"
@@ -772,11 +800,14 @@ def build_metasms_dataset(
     use_llm: bool,
     use_label_llm: bool,
     llm_models: List[str],
+    use_privacy_filter: bool,
+    privacy_filter_model: str,
     dedupe: bool,
     resume: bool,
     checkpoint_every: int,
     chunk_size: int,
 ) -> None:
+    """Orchestrate the full build with optional resume and dedupe."""
     sources = []
 
     sources.append({
@@ -865,7 +896,11 @@ def build_metasms_dataset(
     })
 
     cleaner = DatasetCleaner()
-    anonymizer = SMSAnonymizer(use_whois=False)
+    anonymizer = SMSAnonymizer(
+        use_whois=False,
+        use_privacy_filter=use_privacy_filter,
+        privacy_filter_model=privacy_filter_model,
+    )
     annotators = {
         model: LLMMetadataAnnotator(use_mock=not use_llm, model_name=model)
         for model in llm_models
@@ -877,12 +912,22 @@ def build_metasms_dataset(
     state_path = output_csv.with_suffix(".state.json")
     hashes_path = output_csv.with_suffix(".hashes.txt")
     state = load_resume_state(state_path) if resume else {}
-    signature = state_signature(raw_dir, use_llm, use_label_llm, llm_models, dedupe, chunk_size)
+    signature = state_signature(
+        raw_dir,
+        use_llm,
+        use_label_llm,
+        llm_models,
+        use_privacy_filter,
+        privacy_filter_model,
+        dedupe,
+        chunk_size,
+    )
 
     if resume and state:
         if state.get("options") != signature:
             raise ValueError("Resume options do not match the existing state file.")
 
+    # Cache of hashes to prevent duplicate rows across sources.
     seen_hashes = set()
     if dedupe and hashes_path.exists():
         with hashes_path.open("r", encoding="utf-8") as handle:
@@ -927,6 +972,7 @@ def build_metasms_dataset(
                 writer.writerow(row)
                 source_count += 1
 
+                # Periodic checkpoints allow safe resume after interruptions.
                 if checkpoint_every and source_seen % checkpoint_every == 0:
                     state = {
                         "version": 1,
@@ -966,6 +1012,8 @@ if __name__ == "__main__":
     parser.add_argument("--no-llm", action="store_true", help="Disable LLM enrichment and skip API calls")
     parser.add_argument("--label-llm", action="store_true", help="Use LLM to label unlabeled rows")
     parser.add_argument("--llm-models", type=str, default="", help="Comma-separated list of LLM models")
+    parser.add_argument("--privacy-filter", action="store_true", help="Use privacy-filter for anonymization")
+    parser.add_argument("--privacy-filter-model", type=str, default="openai/privacy-filter", help="Privacy filter model name")
     parser.add_argument("--no-dedupe", action="store_true", help="Disable cross-dataset deduplication")
     parser.add_argument("--resume", action="store_true", help="Resume from previous partial run")
     parser.add_argument("--checkpoint-every", type=int, default=10000, help="Checkpoint every N rows per source")
@@ -978,6 +1026,8 @@ if __name__ == "__main__":
         use_llm=not args.no_llm,
         use_label_llm=args.label_llm,
         llm_models=llm_models,
+        use_privacy_filter=args.privacy_filter,
+        privacy_filter_model=args.privacy_filter_model,
         dedupe=not args.no_dedupe,
     )
 
@@ -987,6 +1037,8 @@ if __name__ == "__main__":
         use_llm=not args.no_llm,
         use_label_llm=args.label_llm,
         llm_models=llm_models,
+        use_privacy_filter=args.privacy_filter,
+        privacy_filter_model=args.privacy_filter_model,
         dedupe=not args.no_dedupe,
         resume=args.resume,
         checkpoint_every=args.checkpoint_every,

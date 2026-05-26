@@ -1,7 +1,7 @@
 import re
 import logging
 import urllib.parse
-from typing import Dict, Tuple, List, Any
+from typing import Dict, Tuple, List, Any, Optional
 from urllib.parse import unquote
 import unicodedata
 
@@ -19,8 +19,28 @@ class SMSAnonymizer:
     Script to strictly anonymize raw SMS datasets.
     Replaces PII and structured entities with flat tags to prepare data for ML.
     """
-    def __init__(self, use_whois: bool = False):
+    # Map privacy-filter labels to replacement tokens used in the dataset.
+    PRIVACY_LABEL_MAP = {
+        "account_number": "<ACCOUNT_NUMBER>",
+        "private_address": "<ADDRESS>",
+        "private_email": "<EMAIL>",
+        "private_person": "<PERSON>",
+        "private_phone": "<PHONE_NUMBER>",
+        "private_url": "<URL>",
+        "private_date": "<DATE>",
+        "secret": "<SECRET>",
+    }
+
+    def __init__(
+        self,
+        use_whois: bool = False,
+        use_privacy_filter: bool = False,
+        privacy_filter_model: str = "openai/privacy-filter",
+    ):
         self.use_whois = use_whois
+        self.use_privacy_filter = use_privacy_filter
+        self.privacy_filter_model = privacy_filter_model
+        self._privacy_pipe = None
         
         if self.use_whois and not WHOIS_AVAILABLE:
             logger.warning("WHOIS extraction requested but 'python-whois' is not installed.")
@@ -55,6 +75,81 @@ class SMSAnonymizer:
         ]
         
         self.stats = {"total": 0, "replaced": 0, "fallback": 0}
+        if self.use_privacy_filter:
+            self._init_privacy_filter()
+
+    def _init_privacy_filter(self) -> None:
+        try:
+            from transformers import pipeline
+
+            # Token classification pipeline for privacy span detection.
+            self._privacy_pipe = pipeline(
+                "token-classification",
+                model=self.privacy_filter_model,
+                aggregation_strategy="simple",
+            )
+        except Exception as exc:
+            logger.warning("Privacy filter unavailable, falling back to regex: %s", exc)
+            self.use_privacy_filter = False
+            self._privacy_pipe = None
+
+    @staticmethod
+    def _normalize_privacy_label(label: str) -> Optional[str]:
+        if not label:
+            return None
+        cleaned = label.strip().lower()
+        if cleaned.startswith("b-") or cleaned.startswith("i-") or cleaned.startswith("e-") or cleaned.startswith("s-"):
+            cleaned = cleaned[2:]
+        return cleaned
+
+    def _process_with_privacy_filter(self, text: str) -> Dict[str, Any]:
+        if not self._privacy_pipe:
+            return self.process_message(text)
+
+        self.stats["total"] += 1
+        output = self._privacy_pipe(text)
+
+        # Collect replacement spans based on the model output.
+        spans: List[Tuple[int, int, str, str]] = []
+        for ent in output:
+            start = ent.get("start")
+            end = ent.get("end")
+            label = ent.get("entity_group") or ent.get("entity")
+            if start is None or end is None or not label:
+                continue
+            normalized = self._normalize_privacy_label(label)
+            token = self.PRIVACY_LABEL_MAP.get(normalized)
+            if not token:
+                continue
+            spans.append((int(start), int(end), token, normalized))
+
+        if not spans:
+            self.stats["fallback"] += 1
+            return {"original": text, "anonymized": text, "entities": []}
+
+        spans.sort(key=lambda x: x[0])
+        anonymized_text = text
+        entities: List[Dict[str, Any]] = []
+
+        # Apply replacements from the end to keep indices valid.
+        for start, end, token, _ in reversed(spans):
+            value = text[start:end]
+            entity_type = token.strip("<>")
+            entity_info: Dict[str, Any] = {"type": entity_type, "value": value}
+            if "URL" in entity_type and self.use_whois:
+                w_data = self._get_whois_data(value)
+                if w_data:
+                    entity_info["whois"] = w_data
+            entities.append(entity_info)
+            self.stats["replaced"] += 1
+            anonymized_text = anonymized_text[:start] + token + anonymized_text[end:]
+
+        entities.reverse()
+        return {
+            "original": text,
+            "anonymized": anonymized_text,
+            "entities": entities,
+        }
 
     def _decode_urls(self, text: str) -> str:
         return unquote(text)
@@ -84,11 +179,15 @@ class SMSAnonymizer:
     def process_message(self, text: str) -> Dict[str, Any]:
         if not isinstance(text, str):
             text = str(text)
-            
-        self.stats["total"] += 1
+        
         text = self._decode_urls(text)
         text = self._normalize_unicode(text)
         text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
+
+        if self.use_privacy_filter and self._privacy_pipe:
+            return self._process_with_privacy_filter(text)
+
+        self.stats["total"] += 1
         
         original_len = len(text)
         extracted_entities = []
