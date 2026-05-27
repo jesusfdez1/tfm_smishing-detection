@@ -42,6 +42,7 @@ MASTER_FIELDS = [
     "license",
     "language",
     "language_confidence",
+    "is_ai_generated",
     "llm_annotated",
     "llm_model",
     "prompt_version",
@@ -115,6 +116,14 @@ SOURCE_META = {
         "license": "CC BY-NC 4.0",
         "source_url": None,
     },
+    "smishing_4c": {
+        "license": "Research Use",
+        "source_url": "https://www.kaggle.com/datasets/galactus007/sms-smishing-collection-data-set",
+    },
+    "mimics_3500": {
+        "license": "Research Use",
+        "source_url": "https://data.mendeley.com/datasets/f45bkkt8pr/1",
+    },
 }
 
 
@@ -168,9 +177,9 @@ def iso_from_epoch_ms(value: Any) -> Optional[str]:
         return None
     try:
         ts = int(value)
-    except (TypeError, ValueError):
+        return datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError, OSError, OverflowError):
         return None
-    return datetime.fromtimestamp(ts / 1000.0, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def iter_csv_dicts(path: Path, chunk_size: int, **kwargs: Any) -> Iterable[Dict[str, Any]]:
@@ -286,7 +295,16 @@ def save_resume_state(state_path: Path, state: Dict[str, Any]) -> None:
     tmp_path = state_path.with_suffix(".tmp")
     with tmp_path.open("w", encoding="utf-8") as handle:
         json.dump(state, handle, ensure_ascii=True, indent=2)
-    tmp_path.replace(state_path)
+    
+    import time
+    for attempt in range(5):
+        try:
+            tmp_path.replace(state_path)
+            break
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.5)
 
 
 def detect_language(text: str, hint: Optional[str]) -> Dict[str, Any]:
@@ -464,6 +482,7 @@ def build_master_row(
         "license": raw.get("license") or "",
         "language": language_data.get("language", "unknown"),
         "language_confidence": language_data.get("language_confidence", 0.0),
+        "is_ai_generated": int(raw.get("is_ai_generated", 0)),
         "llm_annotated": 1 if llm_annotations else 0,
         "llm_model": llm_primary.get("llm_model") or "",
         "prompt_version": llm_primary.get("prompt_version") or "",
@@ -556,7 +575,7 @@ def load_kaggle_phishing(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]
         text = clean_str(row.get("text"))
         if not text:
             continue
-        canonical = "smishing" if label else "smishing"
+        canonical = "smishing"
         original = label or "phishing"
         if category:
             original = f"{original}:{category}"
@@ -797,6 +816,7 @@ def load_malicious_benign(path: Path, chunk_size: int) -> Iterable[Dict[str, Any
             "label_mapping_rule": "label==1->spam; label==0->ham",
             "license": SOURCE_META["malicious_benign_sms_mms"]["license"],
             "language_hint": "en",
+            "is_ai_generated": int(ai_generated) if ai_generated and ai_generated.strip() in {"1", "true"} else 0,
         }
 
 
@@ -815,12 +835,60 @@ def load_malicious_benign_synthetic(path: Path, chunk_size: int) -> Iterable[Dic
             "text": text,
             "canonical_label": canonical,
             "timestamp_original": None,
-            "source": "malicious_benign_sms_mms",
+            "source": "malicious_benign_synthetic",
             "source_id": None,
             "source_url": SOURCE_META["malicious_benign_sms_mms"]["source_url"],
             "original_label": original,
             "label_mapping_rule": "label==1->spam; label==0->ham",
             "license": SOURCE_META["malicious_benign_sms_mms"]["license"],
+            "language_hint": "en",
+            "is_ai_generated": 1,
+        }
+
+
+def load_smishing_4c(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load Smishing-4C dataset with TYPE category and feature columns."""
+    feature_cols = ["SLANG", "COMPANY", "Length_value", "Num_writing_errors", "Phone", "URL"]
+    for row in iter_csv_dicts(path, chunk_size=chunk_size):
+        text = clean_str(row.get("TEXT-ENG"))
+        stype = clean_str(row.get("TYPE")) or "unknown"
+        if not text:
+            continue
+        features = {col: clean_str(row.get(col)) or "" for col in feature_cols}
+        features_str = ";".join(f"{k}={v}" for k, v in features.items())
+        yield {
+            "text": text,
+            "canonical_label": "smishing",
+            "timestamp_original": None,
+            "source": "smishing_4c",
+            "source_id": None,
+            "source_url": SOURCE_META["smishing_4c"]["source_url"],
+            "original_label": f"{stype} [{features_str}]",
+            "label_mapping_rule": "implicit_smishing",
+            "license": SOURCE_META["smishing_4c"]["license"],
+            "language_hint": "en",
+        }
+
+
+def load_mimics_3500(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
+    """Load MIMICS-3500 multi-class smishing dataset."""
+    for row in iter_csv_dicts(path, chunk_size=chunk_size):
+        text = clean_str(row.get("TEXT"))
+        cls7 = clean_str(row.get("7_CLASSES")) or "unknown"
+        cls13 = clean_str(row.get("13_CLASSES")) or "unknown"
+        dataset = clean_str(row.get("DATASET")) or "unknown"
+        if not text:
+            continue
+        yield {
+            "text": text,
+            "canonical_label": "smishing",
+            "timestamp_original": None,
+            "source": "mimics_3500",
+            "source_id": None,
+            "source_url": SOURCE_META["mimics_3500"]["source_url"],
+            "original_label": f"7class={cls7};13class={cls13};dataset={dataset}",
+            "label_mapping_rule": "implicit_smishing",
+            "license": SOURCE_META["mimics_3500"]["license"],
             "language_hint": "en",
         }
 

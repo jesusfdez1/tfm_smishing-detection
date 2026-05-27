@@ -3,7 +3,6 @@ import unicodedata
 import logging
 from typing import Dict, Any
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 class DatasetCleaner:
@@ -82,6 +81,10 @@ class DatasetCleaner:
         tags = []
         original = text
 
+        # Normalize escaped whitespace sequences from CSV exports.
+        if "\\n" in text or "\\t" in text or "\\r" in text:
+            text = text.replace("\\r", " ").replace("\\n", " ").replace("\\t", " ")
+
         # 1. Detect and remove invisible characters (ZWSP)
         if self.invisible_chars_re.search(text):
             tags.append("<OBF_ZWSP>")
@@ -121,6 +124,10 @@ class DatasetCleaner:
                 self.stats["obf_newlines"] += 1
             # Collapse all newlines and tabs to a single space
             text = re.sub(r'[\r\n\t]+', ' ', text).strip()
+
+        # Collapse tabs that appear without newlines.
+        if "\t" in text:
+            text = re.sub(r"\t+", " ", text).strip()
 
         # 6. Unicode Normalization (NFKC)
         # Fixes full-width chars (ｅ -> e) or math fonts (𝕮 -> C)

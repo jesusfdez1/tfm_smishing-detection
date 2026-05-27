@@ -383,3 +383,70 @@ A small dataset specifically containing messages in Spanish. Rare resource usefu
 | :--- | :---: | :--- |
 | `mensaje` | *String* | Message content in Spanish. |
 | `tipo` | *Categorical* | Label: `spam` or `ham`. |
+
+---
+
+## 14. Smishing-4C Dataset
+
+**Overview:**  
+A compact, curated smishing-only dataset with 120 samples categorized into four social-engineering themes. Each sample is annotated with pre-extracted features (slang use, company mentions, text length, writing errors, phone presence, and URL count), making it a useful resource for feature-based classification research.
+
+**Key Statistics:**  
+- **Total Records:** 120 messages  
+- **Class Distribution:** 4 categories — Bank/Finance, Dating, Rewards, SMS Service (all smishing)  
+- **Feature Annotations:** SLANG, COMPANY, Length_value, Num_writing_errors, Phone, URL  
+- **Authors/Institution:** Community contribution  
+
+**Storage & Format:**  
+- **Location:** `data/raw/smishing_4C.csv`  
+- **Format:** CSV  
+- **Structure:** Single file with text, category, and feature columns.
+
+**Data Dictionary:**  
+| Attribute | Type | Description |
+| :--- | :---: | :--- |
+| `TEXT-ENG` | *String* | English text content of the smishing message. |
+| `TYPE` | *Categorical* | Smishing category: `Bank/Finance`, `Dating`, `Rewards`, or `SMS Service`. |
+| `SLANG` | *Categorical* | Whether slang is used (`SI`/`NO`). |
+| `COMPANY` | *String* | Company name mentioned in the message (if any). |
+| `Length_value` | *Integer* | Character length of the message. |
+| `Num_writing_errors` | *Integer* | Number of detected writing/spelling errors. |
+| `Phone` | *Integer* | Number of phone numbers in the message. |
+| `URL` | *Integer* | Number of URLs in the message. |
+
+**Data Sources:**  
+> Kaggle Smishing Dataset: https://www.kaggle.com/datasets/galactus007/sms-smishing-collection-data-set  
+> Mendeley Smishing Dataset: https://data.mendeley.com/datasets/f45bkkt8pr/1  
+
+---
+
+## 15. MIMICS-3500 Dataset
+
+**Overview:**  
+A large-scale, multi-source smishing dataset containing 3,500 messages with dual-granularity labeling. Each sample is tagged with both a 7-class and a 13-class category, enabling research at different levels of thematic granularity. The dataset aggregates samples from five distinct sources, including social media posts from INCIBE (Spain's national cybersecurity institute).
+
+**Key Statistics:**  
+- **Total Records:** 3,500 messages  
+- **Class Distribution (7 classes):** Accounts, Bank/Finance, Dating, Deliveries, Rewards, SMS Service, Lifestyle  
+- **Class Distribution (13 classes):** Accounts, Bank, Customer service, Dating, Deliveries, Finances, Gifts, Offers, Other, Prizes, SMS service, Sexual, Spam  
+- **Authors/Institution:** Multi-source academic compilation  
+
+**Storage & Format:**  
+- **Location:** `data/raw/mimics_3500_v1.csv`  
+- **Format:** CSV  
+- **Structure:** Single file with text, dual class labels, and source provenance.
+
+**Data Dictionary:**  
+| Attribute | Type | Description |
+| :--- | :---: | :--- |
+| `TEXT` | *String* | Raw textual content of the smishing message. |
+| `7_CLASSES` | *Categorical* | Coarse-grained category (7 classes). |
+| `13_CLASSES` | *Categorical* | Fine-grained category (13 classes). |
+| `DATASET` | *String* | Original source dataset provenance. |
+
+**Data Sources:**  
+> - Kaggle (various SMS smishing collections)  
+> - Mendeley Data: https://data.mendeley.com/datasets/f45bkkt8pr/1  
+> - INCIBE (Twitter and Facebook threat reports)  
+> - SmishTank: https://smishtank.com/  
+> - SpamHunter

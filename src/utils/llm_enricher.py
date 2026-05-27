@@ -39,20 +39,23 @@ class LLMMetadataAnnotator:
 
     def __init__(self, use_mock: bool = False, model_name: str | None = None):
         """Initialize the annotator and load API keys from the environment."""
-        load_dotenv()
-        api_keys_env = os.environ.get("GEMINI_API_KEYS")
-        if api_keys_env:
-            self.api_keys = [key.strip() for key in api_keys_env.split(",") if key.strip()]
-        else:
-            single_key = os.environ.get("GEMINI_API_KEY")
-            self.api_keys = [single_key] if single_key else []
-        self.api_key_index = 0
         self.use_mock = use_mock
         self.model_name = model_name or self.MODEL_NAME
-        
-        if not self.api_keys and not self.use_mock:
-            logger.warning("No GEMINI_API_KEY(S) found. LLM enrichment will run in MOCK mode.")
-            self.use_mock = True
+        self.api_keys = []
+        self.api_key_index = 0
+
+        if not self.use_mock:
+            load_dotenv()
+            api_keys_env = os.environ.get("GEMINI_API_KEYS")
+            if api_keys_env:
+                self.api_keys = [key.strip() for key in api_keys_env.split(",") if key.strip()]
+            else:
+                single_key = os.environ.get("GEMINI_API_KEY")
+                self.api_keys = [single_key] if single_key else []
+
+            if not self.api_keys:
+                logger.warning("No GEMINI_API_KEY(S) found. LLM enrichment will run in MOCK mode.")
+                self.use_mock = True
 
     def _iter_api_keys(self):
         """Yield API keys in a rotating order starting at the current index."""
