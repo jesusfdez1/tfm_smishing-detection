@@ -49,8 +49,6 @@ MASTER_FIELDS = [
     "llm_annotation_date",
     "theme",
     "urgency_level",
-    "llm_models",
-    "llm_annotations",
 ]
 
 LANGUAGE_MAP = {
@@ -128,11 +126,14 @@ SOURCE_META = {
 
 
 def clean_str(value: Any) -> Optional[str]:
-    """Normalize a value to a stripped string or return None for empties."""
-    if value is None:
+    """Clean string by removing surrounding whitespace and internal newlines."""
+    if not isinstance(value, str):
         return None
-    text = str(value).strip()
-    return text if text else None
+    # Replace carriage returns and newlines with a single space
+    cleaned = value.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    # Collapse multiple spaces into one
+    cleaned = " ".join(cleaned.split())
+    return cleaned if cleaned else None
 
 
 def normalize_language(value: Optional[str]) -> Optional[str]:
@@ -461,11 +462,14 @@ def build_master_row(
     llm_annotations_json = json.dumps(llm_annotations, ensure_ascii=True)
     dedupe_key = build_dedupe_key(llm_text)
 
-    label_mapping_rule = raw.get("label_mapping_rule") or ""
-    original_label = raw.get("original_label") or ""
+    original_label = raw.get("original_label") or "unlabeled"
+    
+    # If the row had no label and the LLM inferred it
     if not raw.get("canonical_label") and canonical_label:
-        label_mapping_rule = "llm_label_inference"
-        original_label = original_label or "unlabeled"
+        label_mapping_rule = f"{original_label}->{canonical_label} (LLM Inference)"
+    else:
+        # Standardize the mapping rule format directly from the values
+        label_mapping_rule = f"{original_label}->{canonical_label}"
 
     return {
         "message_id": f"msg_{uuid.uuid4().hex[:12]}",
@@ -484,13 +488,11 @@ def build_master_row(
         "language_confidence": language_data.get("language_confidence", 0.0),
         "is_ai_generated": int(raw.get("is_ai_generated", 0)),
         "llm_annotated": 1 if llm_annotations else 0,
-        "llm_model": llm_primary.get("llm_model") or "",
+        "llm_model": raw.get("llm_model") or llm_primary.get("llm_model") or "",
         "prompt_version": llm_primary.get("prompt_version") or "",
         "llm_annotation_date": llm_primary.get("llm_annotation_date") or "",
         "theme": llm_primary.get("theme", 0),
         "urgency_level": llm_primary.get("urgency_level", 0),
-        "llm_models": llm_models,
-        "llm_annotations": llm_annotations_json,
     }, dedupe_key
 
 
@@ -695,7 +697,7 @@ def load_nus(path: Path) -> Iterable[Dict[str, Any]]:
 
 
 def load_smish(path: Path) -> Iterable[Dict[str, Any]]:
-    """Load Smishtank JSONL records and map to smishing."""
+    """Load Smishtank JSONL records and map to smishing or leave unlabeled based on community evaluation."""
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
             line = line.strip()
@@ -714,15 +716,26 @@ def load_smish(path: Path) -> Iterable[Dict[str, Any]]:
             timestamp_original = iso_from_epoch_ms(ts)
             source_id = clean_str(smish.get("messageID") or payload.get("message_id"))
             source_url = clean_str(smish.get("url"))
+            
+            # Comprobar si la comunidad lo ha verificado
+            upvotes = int(smish.get("upvotes") or 0)
+            
+            if upvotes > 0:
+                canonical_label = "smishing"
+                original_label = "smishing (community verified)"
+            else:
+                canonical_label = None
+                original_label = "unlabeled (raw submission)"
+
             yield {
                 "text": text,
-                "canonical_label": "smishing",
+                "canonical_label": canonical_label,
                 "timestamp_original": timestamp_original,
                 "source": "smishtank",
                 "source_id": source_id,
                 "source_url": source_url or SOURCE_META["smishtank"]["source_url"],
-                "original_label": "smishing",
-                "label_mapping_rule": "smishtank_assumed_smishing",
+                "original_label": original_label,
+                "label_mapping_rule": "", # Será sobreescrito dinámicamente en build_master_row
                 "license": SOURCE_META["smishtank"]["license"],
                 "language_hint": None,
             }
@@ -830,7 +843,8 @@ def load_malicious_benign_synthetic(path: Path, chunk_size: int) -> Iterable[Dic
         canonical = map_binary_label(label, positive_label="spam")
         if not canonical:
             continue
-        original = f"label={label};source={clean_str(row.get('source'))};model={clean_str(row.get('model'))}"
+        original = f"label={label};source={clean_str(row.get('source'))}"
+        ai_model = clean_str(row.get("model"))
         yield {
             "text": text,
             "canonical_label": canonical,
@@ -840,6 +854,7 @@ def load_malicious_benign_synthetic(path: Path, chunk_size: int) -> Iterable[Dic
             "source_url": SOURCE_META["malicious_benign_sms_mms"]["source_url"],
             "original_label": original,
             "label_mapping_rule": "label==1->spam; label==0->ham",
+            "llm_model": ai_model,
             "license": SOURCE_META["malicious_benign_sms_mms"]["license"],
             "language_hint": "en",
             "is_ai_generated": 1,
@@ -944,11 +959,7 @@ def build_metasms_dataset(
         "path": raw_dir / "almeida_2011_uci_sms_spam" / "SMSSpamCollection",
         "loader": lambda p: load_uci(p, chunk_size),
     })
-    sources.append({
-        "name": "enron_spam",
-        "path": raw_dir / "metsis_2006_enron_spam.csv",
-        "loader": lambda p: load_enron(p, chunk_size),
-    })
+
     sources.append({
         "name": "nus_sms",
         "path": raw_dir / "nus_2015_sms_corpus_en.json",
@@ -979,9 +990,6 @@ def build_metasms_dataset(
     malicious_dir = raw_dir / "malicious_benign_sms_mms"
     for filename in [
         "dataset_v3_for_deberta.csv",
-        "dataset_v3_undersampled_stratified.csv",
-        "original_dataset_v2.csv",
-        "original_dataset_v2_undersampled_stratified.csv",
     ]:
         sources.append({
             "name": f"malicious_benign_{filename}",

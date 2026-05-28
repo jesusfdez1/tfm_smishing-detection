@@ -308,25 +308,7 @@ A small, specialized dataset categorizing phishing/smishing messages by the soci
 
 ---
 
-## 11. Enron Spam Dataset
-
-**Overview:**  
-A massive collection of spam and ham *emails* from the Enron corpus. While not SMS, the textual patterns are often used in generic spam classification models.
-
-**Key Statistics:**  
-- **Total Records:** 33,716 emails  
-- **Class Distribution:** 17,171 Spam | 16,545 Ham  
-- **Version:** 2006 (Metsis et al.)  
-- **Authors/Institution:** V. Metsis, I. Androutsopoulos, and G. Paliouras  
-
-**Storage & Format:**  
-- **Location:** `data/raw/metsis_2006_enron_spam.csv`  
-- **Format:** CSV  
-- **Structure:** Emails organized into subject, message body, label, and date.
-
-**Data Dictionary:**  
-| Attribute | Type | Description |
-| :--- | :---: | :--- |
+| :---: | :--- |
 | `Subject` | *String* | Email subject line. |
 | `Message` | *String* | Email body content. |
 | `Spam/Ham` | *Categorical* | Label: `spam` or `ham`. |
@@ -337,7 +319,7 @@ A massive collection of spam and ham *emails* from the Enron corpus. While not S
 
 ---
 
-## 12. Malicious-Benign SMS/MMS Dataset
+## 11. Malicious-Benign SMS/MMS Dataset
 
 **Overview:**  
 A large-scale, highly engineered dataset designed for DeBERTa training. It combines real data (Discord messages, UCI, SpamDam) with heavily generated synthetic data using various LLMs to create balanced smishing classes.
@@ -363,7 +345,7 @@ A large-scale, highly engineered dataset designed for DeBERTa training. It combi
 
 ---
 
-## 13. Spanish Spam/Ham Dataset
+## 12. Spanish Spam/Ham Dataset
 
 **Overview:**  
 A small dataset specifically containing messages in Spanish. Rare resource useful for multi-lingual model tuning.
@@ -386,7 +368,7 @@ A small dataset specifically containing messages in Spanish. Rare resource usefu
 
 ---
 
-## 14. Smishing-4C Dataset
+## 13. Smishing-4C Dataset
 
 **Overview:**  
 A compact, curated smishing-only dataset with 120 samples categorized into four social-engineering themes. Each sample is annotated with pre-extracted features (slang use, company mentions, text length, writing errors, phone presence, and URL count), making it a useful resource for feature-based classification research.
@@ -420,7 +402,7 @@ A compact, curated smishing-only dataset with 120 samples categorized into four 
 
 ---
 
-## 15. MIMICS-3500 Dataset
+## 14. MIMICS-3500 Dataset
 
 **Overview:**  
 A large-scale, multi-source smishing dataset containing 3,500 messages with dual-granularity labeling. Each sample is tagged with both a 7-class and a 13-class category, enabling research at different levels of thematic granularity. The dataset aggregates samples from five distinct sources, including social media posts from INCIBE (Spain's national cybersecurity institute).
