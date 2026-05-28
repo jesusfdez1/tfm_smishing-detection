@@ -25,7 +25,7 @@ ENV/
 # MetaSMS-HSS Custom Rules
 # =========================
 
-
+/data
 # Ignorar modelos pesados del entrenamiento (pkl, bin, safetensors)
 experiments/results/models/*
 !experiments/results/models/.gitkeep

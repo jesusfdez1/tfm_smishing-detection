@@ -25,8 +25,6 @@ The meta-dataset is dynamically aggregated from **14 independent, heterogeneous 
 | 13 | Smishing-4C | 120 | 4 Thematic Cats. | CSV | Kaggle / Mendeley |
 | 14 | MIMICS-3500 | 3,500 | 7 / 13 Classes | CSV | Multiple Sources |
 
-*(Note: The Enron dataset was explicitly removed from the pipeline to guarantee an SMS-exclusive lexical distribution).*
-
 ## 2. Architectural Structure
 
 The project is strictly modularized, segregating the Extract-Transform-Load (ETL) data pipeline from the Machine Learning experimental framework:

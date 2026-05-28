@@ -98,10 +98,7 @@ SOURCE_META = {
         "license": "Unknown",
         "source_url": None,
     },
-    "enron_spam": {
-        "license": "Research Use",
-        "source_url": None,
-    },
+
     "exais_sms": {
         "license": "Research Use",
         "source_url": None,
@@ -644,29 +641,7 @@ def load_uci(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
         }
 
 
-def load_enron(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
-    """Load Enron spam/ham emails and join subject/body."""
-    for row in iter_csv_dicts(path, chunk_size=chunk_size):
-        label = clean_str(row.get("Spam/Ham"))
-        subject = clean_str(row.get("Subject"))
-        message = clean_str(row.get("Message"))
-        text_parts = [part for part in [subject, message] if part]
-        text = "\n".join(text_parts)
-        canonical = map_label_basic(label)
-        if not canonical or not text:
-            continue
-        yield {
-            "text": text,
-            "canonical_label": canonical,
-            "timestamp_original": clean_str(row.get("Date")),
-            "source": "enron_spam",
-            "source_id": clean_str(row.get("Message ID")),
-            "source_url": SOURCE_META["enron_spam"]["source_url"],
-            "original_label": label,
-            "label_mapping_rule": f"{label}->{canonical}",
-            "license": SOURCE_META["enron_spam"]["license"],
-            "language_hint": "en",
-        }
+
 
 
 def load_nus(path: Path) -> Iterable[Dict[str, Any]]:
