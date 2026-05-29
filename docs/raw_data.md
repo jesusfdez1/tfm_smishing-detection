@@ -343,6 +343,9 @@ A large-scale, highly engineered dataset designed for DeBERTa training. It combi
 | `ai_generated` | *Binary* | `0` = Human-written, `1` = AI-generated. |
 | `[features]` | *Various* | Dozens of engineered NLP features (e.g., `char_count`, `urgency_score`). |
 
+**Primary Citation & DOI:**  
+> **URL:** https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset
+
 ---
 
 ## 12. Spanish Spam/Ham Dataset

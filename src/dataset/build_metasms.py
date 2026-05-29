@@ -21,7 +21,6 @@ import pandas as pd
 
 from utils.cleaner import DatasetCleaner
 from utils.anonymizer import SMSAnonymizer
-from utils.llm_enricher import LLMMetadataAnnotator
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -43,6 +42,8 @@ MASTER_FIELDS = [
     "language",
     "language_confidence",
     "is_ai_generated",
+    "generation_model",
+    "label_inferred_by_ai",
     "llm_annotated",
     "llm_model",
     "prompt_version",
@@ -228,25 +229,16 @@ def sanitize_token(value: str) -> str:
 
 def build_output_name(
     output_dir: Path,
-    use_llm: bool,
-    use_label_llm: bool,
-    llm_models: List[str],
     use_privacy_filter: bool,
     privacy_filter_model: str,
     dedupe: bool,
 ) -> Path:
     """Build an output filename that encodes the main pipeline options."""
-    llm_flag = "on" if use_llm else "off"
-    label_flag = "on" if use_label_llm else "off"
     privacy_flag = "on" if use_privacy_filter else "off"
     dedupe_flag = "on" if dedupe else "off"
-    model_token = "none" if not use_llm else "+".join([sanitize_token(m) for m in llm_models])
     privacy_token = sanitize_token(privacy_filter_model) if use_privacy_filter else "none"
     name = (
-        "metasms_hss_master"
-        f"__llm={llm_flag}"
-        f"__label={label_flag}"
-        f"__models={model_token}"
+        "metasms_hss_unlabeled"
         f"__privacy={privacy_flag}"
         f"__pmodel={privacy_token}"
         f"__dedupe={dedupe_flag}.csv"
@@ -256,9 +248,6 @@ def build_output_name(
 
 def state_signature(
     raw_dir: Path,
-    use_llm: bool,
-    use_label_llm: bool,
-    llm_models: List[str],
     use_privacy_filter: bool,
     privacy_filter_model: str,
     dedupe: bool,
@@ -267,9 +256,6 @@ def state_signature(
     """Return a stable signature to validate resume compatibility."""
     return {
         "raw_dir": str(raw_dir),
-        "use_llm": use_llm,
-        "use_label_llm": use_label_llm,
-        "llm_models": llm_models,
         "use_privacy_filter": use_privacy_filter,
         "privacy_filter_model": privacy_filter_model,
         "dedupe": dedupe,
@@ -327,8 +313,20 @@ def detect_language(text: str, hint: Optional[str]) -> Dict[str, Any]:
 
     if not detected:
         try:
-            from langdetect import detect_langs
+            import langid
 
+            detected, score = langid.classify(text)
+            detected = detected[:2].lower()
+            # langid score is not a true probability, but we normalize it loosely or just use 1.0
+            confidence = 1.0
+        except Exception:
+            pass
+
+    if not detected:
+        try:
+            from langdetect import detect_langs, DetectorFactory
+            DetectorFactory.seed = 0  # Make deterministic
+            
             candidates = detect_langs(text)
             if candidates:
                 detected = candidates[0].lang[:2].lower()
@@ -337,100 +335,22 @@ def detect_language(text: str, hint: Optional[str]) -> Dict[str, Any]:
             pass
 
     if not detected:
-        try:
-            import langid
-
-            detected, score = langid.classify(text)
-            detected = detected[:2].lower()
-            confidence = float(score)
-        except Exception:
-            pass
-
-    if not detected:
         if hint:
             return {"language": hint, "language_confidence": 1.0}
         return {"language": "unknown", "language_confidence": 0.0}
 
+    # If the text is short or detection confidence is low, trust the dataset hint
+    if hint and (confidence < 0.95 or len(text.strip()) < 60):
+        detected = hint
+        confidence = 1.0
+
     return {"language": detected, "language_confidence": confidence}
-
-
-def llm_metadata(text: str, annotator: LLMMetadataAnnotator, use_llm: bool) -> Dict[str, Any]:
-    """Call an LLM annotator for theme and urgency metadata."""
-    if not use_llm:
-        return {
-            "llm_annotated": 0,
-            "llm_model": None,
-            "prompt_version": None,
-            "llm_annotation_date": None,
-            "theme": 0,
-            "urgency_level": 0,
-        }
-
-    data = annotator.annotate(text)
-    return {
-        "llm_annotated": data.get("llm_annotated", 0),
-        "llm_model": data.get("llm_model"),
-        "prompt_version": data.get("prompt_version"),
-        "llm_annotation_date": data.get("llm_annotation_date"),
-        "theme": data.get("theme", 0),
-        "urgency_level": data.get("urgency_level", 0),
-    }
-
-
-def collect_llm_annotations(
-    text: str,
-    annotators: Dict[str, LLMMetadataAnnotator],
-    use_llm: bool,
-) -> List[Dict[str, Any]]:
-    """Run all configured LLM annotators and return raw results."""
-    if not use_llm or not annotators:
-        return []
-
-    results: List[Dict[str, Any]] = []
-    for model_name, annotator in annotators.items():
-        data = llm_metadata(text, annotator, use_llm=True)
-        data["llm_model"] = model_name
-        results.append(data)
-    return results
-
-
-def llm_classify_canonical_label(text: str) -> Optional[str]:
-    """Classify a message into ham/spam/smishing using an LLM."""
-    # TODO: Implement the real LLM call here and return "ham", "spam", or "smishing".
-    return None
-
-
-def resolve_canonical_label(
-    raw_label: Optional[str],
-    use_label_llm: bool,
-    label_text: str,
-) -> Optional[str]:
-    """Resolve a canonical label, optionally using an LLM for unlabeled rows."""
-    if raw_label:
-        return raw_label
-    if not use_label_llm:
-        return None
-    predicted = llm_classify_canonical_label(label_text)
-    if predicted in {"ham", "spam", "smishing"}:
-        return predicted
-    return None
-
-
-def parse_llm_models(value: Optional[str]) -> List[str]:
-    """Parse a comma-separated LLM list, falling back to a default model."""
-    if not value:
-        return [LLMMetadataAnnotator.MODEL_NAME]
-    models = [model.strip() for model in value.split(",") if model.strip()]
-    return models if models else [LLMMetadataAnnotator.MODEL_NAME]
 
 
 def build_master_row(
     raw: Dict[str, Any],
-    annotators: Dict[str, LLMMetadataAnnotator],
     cleaner: DatasetCleaner,
     anonymizer: SMSAnonymizer,
-    use_llm: bool,
-    use_label_llm: bool,
 ) -> Optional[Tuple[Dict[str, Any], str]]:
     """Build a normalized master row and return a dedupe key."""
     text = clean_str(raw.get("text"))
@@ -445,35 +365,35 @@ def build_master_row(
         anonymization_status = "anonymized"
     else:
         anonymization_status = "raw"
-    canonical_label = resolve_canonical_label(raw.get("canonical_label"), use_label_llm, llm_text)
-    if not canonical_label:
-        logger.warning("Skipped unlabeled row from source=%s", raw.get("source"))
-        return None
+        
+    canonical_label = raw.get("canonical_label")
+
+    # Don't skip unlabeled rows, we will label them later in enrich_llm.py
+    # if not canonical_label:
+    #     logger.warning("Skipped unlabeled row from source=%s", raw.get("source"))
+    #     return None
 
     language_data = detect_language(llm_text, raw.get("language_hint"))
-    llm_annotations = collect_llm_annotations(llm_text, annotators, use_llm)
-    llm_primary = llm_annotations[0] if llm_annotations else {}
-    llm_models = ",".join(
-        [entry.get("llm_model", "") for entry in llm_annotations if entry.get("llm_model")]
-    )
-    llm_annotations_json = json.dumps(llm_annotations, ensure_ascii=True)
+    language = language_data.get("language", "unknown")
+    language_confidence = language_data.get("language_confidence", 0.0)
+
     dedupe_key = build_dedupe_key(llm_text)
 
     original_label = raw.get("original_label") or "unlabeled"
     
-    # If the row had no label and the LLM inferred it
-    if not raw.get("canonical_label") and canonical_label:
-        label_mapping_rule = f"{original_label}->{canonical_label} (LLM Inference)"
+    if canonical_label and original_label.strip().lower() != canonical_label.strip().lower():
+        label_mapping_rule = raw.get("label_mapping_rule") or f"{original_label}->{canonical_label}"
     else:
-        # Standardize the mapping rule format directly from the values
-        label_mapping_rule = f"{original_label}->{canonical_label}"
+        label_mapping_rule = ""
+
+    generation_model = raw.get("generation_model") or ""
 
     return {
         "message_id": f"msg_{uuid.uuid4().hex[:12]}",
         "text": text,
         "text_anonymized": llm_text,
         "anonymization_status": anonymization_status,
-        "canonical_label": canonical_label,
+        "canonical_label": canonical_label or "",
         "timestamp_original": raw.get("timestamp_original") or "",
         "source": raw.get("source") or "unknown",
         "source_id": raw.get("source_id") or "",
@@ -481,15 +401,17 @@ def build_master_row(
         "original_label": original_label,
         "label_mapping_rule": label_mapping_rule,
         "license": raw.get("license") or "",
-        "language": language_data.get("language", "unknown"),
-        "language_confidence": language_data.get("language_confidence", 0.0),
+        "language": language,
+        "language_confidence": language_confidence,
         "is_ai_generated": int(raw.get("is_ai_generated", 0)),
-        "llm_annotated": 1 if llm_annotations else 0,
-        "llm_model": raw.get("llm_model") or llm_primary.get("llm_model") or "",
-        "prompt_version": llm_primary.get("prompt_version") or "",
-        "llm_annotation_date": llm_primary.get("llm_annotation_date") or "",
-        "theme": llm_primary.get("theme", 0),
-        "urgency_level": llm_primary.get("urgency_level", 0),
+        "generation_model": generation_model,
+        "label_inferred_by_ai": 0,
+        "llm_annotated": 0,
+        "llm_model": "",
+        "prompt_version": "",
+        "llm_annotation_date": "",
+        "theme": 0,
+        "urgency_level": 0,
     }, dedupe_key
 
 
@@ -511,7 +433,7 @@ def load_mishra(path: Path, source_name: str, chunk_size: int) -> Iterable[Dict[
             "original_label": label,
             "label_mapping_rule": f"{label}->{canonical}",
             "license": SOURCE_META[source_name]["license"],
-            "language_hint": None,
+            "language_hint": "en",
         }
 
 
@@ -886,9 +808,6 @@ def load_mimics_3500(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
 def build_metasms_dataset(
     raw_dir: Path,
     output_csv: Path,
-    use_llm: bool,
-    use_label_llm: bool,
-    llm_models: List[str],
     use_privacy_filter: bool,
     privacy_filter_model: str,
     dedupe: bool,
@@ -896,7 +815,7 @@ def build_metasms_dataset(
     checkpoint_every: int,
     chunk_size: int,
 ) -> None:
-    """Orchestrate the full build with optional resume and dedupe."""
+    """Build the MetaSMS-HSS dataset from all raw sources."""
     sources = []
 
     sources.append({
@@ -964,18 +883,13 @@ def build_metasms_dataset(
 
     malicious_dir = raw_dir / "malicious_benign_sms_mms"
     for filename in [
-        "dataset_v3_for_deberta.csv",
+        "dataset_v3_undersampled_stratified_full.csv",
     ]:
         sources.append({
             "name": f"malicious_benign_{filename}",
             "path": malicious_dir / filename,
             "loader": lambda p: load_malicious_benign(p, chunk_size),
         })
-    sources.append({
-        "name": "malicious_benign_synthetic",
-        "path": malicious_dir / "synthetic_data" / "ai_generated_all.csv",
-        "loader": lambda p: load_malicious_benign_synthetic(p, chunk_size),
-    })
 
     cleaner = DatasetCleaner()
     anonymizer = SMSAnonymizer(
@@ -983,10 +897,6 @@ def build_metasms_dataset(
         use_privacy_filter=use_privacy_filter,
         privacy_filter_model=privacy_filter_model,
     )
-    annotators = {
-        model: LLMMetadataAnnotator(use_mock=not use_llm, model_name=model)
-        for model in llm_models
-    }
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     total_written = 0
@@ -996,9 +906,6 @@ def build_metasms_dataset(
     state = load_resume_state(state_path) if resume else {}
     signature = state_signature(
         raw_dir,
-        use_llm,
-        use_label_llm,
-        llm_models,
         use_privacy_filter,
         privacy_filter_model,
         dedupe,
@@ -1042,7 +949,7 @@ def build_metasms_dataset(
                 if resume and source_seen <= source_offset:
                     continue
 
-                built = build_master_row(raw, annotators, cleaner, anonymizer, use_llm, use_label_llm)
+                built = build_master_row(raw, cleaner, anonymizer)
                 if not built:
                     continue
                 row, dedupe_key = built
@@ -1051,6 +958,7 @@ def build_metasms_dataset(
                         continue
                     seen_hashes.add(dedupe_key)
                     hash_handle.write(dedupe_key + "\n")
+                
                 writer.writerow(row)
                 source_count += 1
 
@@ -1066,6 +974,7 @@ def build_metasms_dataset(
                         "total_written": total_written + source_count,
                     }
                     save_resume_state(state_path, state)
+            
             logger.info("Finished %s: %d records", source["name"], source_count)
             total_written += source_count
 
@@ -1091,9 +1000,6 @@ if __name__ == "__main__":
     parser.add_argument("--raw-dir", type=str, default="data/raw", help="Path to raw datasets root")
     parser.add_argument("--output", type=str, default="", help="Path to save output CSV (auto-named if empty)")
     parser.add_argument("--chunk-size", type=int, default=5000, help="Row chunk size for CSV sources")
-    parser.add_argument("--no-llm", action="store_true", help="Disable LLM enrichment and skip API calls")
-    parser.add_argument("--label-llm", action="store_true", help="Use LLM to label unlabeled rows")
-    parser.add_argument("--llm-models", type=str, default="", help="Comma-separated list of LLM models")
     parser.add_argument("--privacy-filter", action="store_true", help="Use privacy-filter for anonymization")
     parser.add_argument("--privacy-filter-model", type=str, default="openai/privacy-filter", help="Privacy filter model name")
     parser.add_argument("--no-dedupe", action="store_true", help="Disable cross-dataset deduplication")
@@ -1102,12 +1008,8 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    llm_models = parse_llm_models(args.llm_models)
     output_csv = Path(args.output) if args.output else build_output_name(
         output_dir=Path("."),
-        use_llm=not args.no_llm,
-        use_label_llm=args.label_llm,
-        llm_models=llm_models,
         use_privacy_filter=args.privacy_filter,
         privacy_filter_model=args.privacy_filter_model,
         dedupe=not args.no_dedupe,
@@ -1116,9 +1018,6 @@ if __name__ == "__main__":
     build_metasms_dataset(
         raw_dir=Path(args.raw_dir),
         output_csv=output_csv,
-        use_llm=not args.no_llm,
-        use_label_llm=args.label_llm,
-        llm_models=llm_models,
         use_privacy_filter=args.privacy_filter,
         privacy_filter_model=args.privacy_filter_model,
         dedupe=not args.no_dedupe,

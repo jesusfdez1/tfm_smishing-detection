@@ -28,7 +28,7 @@ class SMSAnonymizer:
         "private_address": "<ADDRESS>",
         "private_email": "<EMAIL>",
         "private_person": "<PERSON>",
-        "private_phone": "<PHONE_NUMBER>",
+        "private_phone": "<PHONE>",
         "private_url": "<URL>",
         "private_date": "<DATE>",
         "secret": "<SECRET>",
@@ -55,14 +55,13 @@ class SMSAnonymizer:
 
         # Ordered from most specific to most generic to avoid partial matches.
         self.patterns = [
-            # URLs
-            # Structural Heuristic for Shorteners: Domain length <= 5 chars without TLD
-            (r"(https?://(?:[a-zA-Z0-9-]{1,5}\.[a-zA-Z]{2,4})/[a-zA-Z0-9_-]{2,15}\b)", "<URL_SHORTENER>"),
-            (r"(https?://(?:\d{1,3}\.){3}\d{1,3}(?:\:\d+)?(?:/\S*)?)", "<URL_IP>"),
-            (r"(https?://\S+:\d{2,5}/\S*)", "<URL_PORT>"),
-            (r"(https://\S+)", "<URL_HTTPS>"),
-            (r"(http://\S+)", "<URL_HTTP>"),
-            (r"([a-zA-Z0-9+-.]+://\S+)", "<CUSTOM_URI>"), # Deep links like whatsapp:// or tg://
+            # URLs - collapsed to <URL> to prevent dataset leakage from mixed pre-anonymized sources
+            (r"(https?://(?:[a-zA-Z0-9-]{1,5}\.[a-zA-Z]{2,4})/[a-zA-Z0-9_-]{2,15}\b)", "<URL>"),
+            (r"(https?://(?:\d{1,3}\.){3}\d{1,3}(?:\:\d+)?(?:/\S*)?)", "<URL>"),
+            (r"(https?://\S+:\d{2,5}/\S*)", "<URL>"),
+            (r"(https://\S+)", "<URL>"),
+            (r"(http://\S+)", "<URL>"),
+            (r"([a-zA-Z0-9+-.]+://\S+)", "<URL>"),
 
             # Crypto & Technical Identifiers
             (r"(\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b|\bbc1[a-zA-HJ-NP-Z0-9]{39,59}\b)", "<CRYPTO_ADDRESS>"),
@@ -74,7 +73,7 @@ class SMSAnonymizer:
 
 
             # Phones & Codes
-            (r"(\+?\d{1,4}?[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}[\s.-]?\d{0,4})", "<PHONE_NUMBER>"),
+            (r"(\+?\d{1,4}?[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}[\s.-]?\d{0,4})", "<PHONE>"),
             (r"(\b\d{5,6}\b)", "<PHONE_SHORTCODE>"), 
 
             # Identifiers

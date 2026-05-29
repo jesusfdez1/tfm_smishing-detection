@@ -85,6 +85,15 @@ class DatasetCleaner:
         if "\\n" in text or "\\t" in text or "\\r" in text:
             text = text.replace("\\r", " ").replace("\\n", " ").replace("\\t", " ")
 
+        # 0. Standardize pre-anonymized tokens from academic datasets to prevent ML data leakage.
+        # Different datasets use different tokens (e.g. <URL> vs [URL] vs http://url.com)
+        text = re.sub(r'(?i)<URL>|\[URL\]|http://url\.com|https://url\.com|http://link\.com|https://link\.com|<LINK>|\[LINK\]', '<URL>', text)
+        text = re.sub(r'(?i)<PHONE>|\[PHONE\]|<PHONE_NUMBER>|\[PHONE_NUMBER\]|\b0000000000\b', '<PHONE>', text)
+        text = re.sub(r'(?i)<EMAIL>|\[EMAIL\]', '<EMAIL>', text)
+        text = re.sub(r'(?i)<USER>|\[USER\]|<USERNAME>|\[USERNAME\]|<NAME>|\[NAME\]', '<PERSON>', text)
+        text = re.sub(r'(?i)<CARD>|\[CARD\]|<CREDIT_CARD>|\[CREDIT_CARD\]', '<CREDIT_CARD>', text)
+        text = re.sub(r'(?i)<ACCOUNT>|\[ACCOUNT\]|<ACC>|\[ACC\]', '<ACCOUNT_NUMBER>', text)
+
         # 1. Detect and remove invisible characters (ZWSP)
         if self.invisible_chars_re.search(text):
             tags.append("<OBF_ZWSP>")

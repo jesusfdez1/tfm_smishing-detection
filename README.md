@@ -6,6 +6,8 @@ This repository contains the complete experimental framework and data engineerin
 
 ## 1. Dataset Composition
 
+> 📖 **Diccionario de Datos:** Para ver la explicación detallada de cada columna del CSV, así como la taxonomía de intenciones (`theme`), niveles de urgencia e idiomas ISO, consulta el **[Diccionario de Datos (Biblia)](docs/data_dictionary.md)**.
+
 The meta-dataset is dynamically aggregated from **14 independent, heterogeneous sources**, specifically curated to balance classes and maximize lexical diversity while strictly excluding standard emails to ensure domain fidelity:
 
 | # | Dataset | Samples | Classes | Format | Original Source |
@@ -20,10 +22,12 @@ The meta-dataset is dynamically aggregated from **14 independent, heterogeneous 
 | 8 | NUS SMS Corpus | ~67,000 | 1 (Ham) | JSON | [DOI](https://doi.org/10.1007/s10579-012-9197-9) |
 | 9 | Kaggle Spam/Ham | ~10,800 | 2 (Spam, Ham) | CSV | Kaggle |
 | 10 | Kaggle Phishing | 1,001 | 1 (Smishing) | CSV | Kaggle |
-| 11 | Malicious-Benign SMS/MMS | ~813,000 | 2 (Benign, Spam) | CSV | HuggingFace |
+| 11 | Malicious-Benign SMS/MMS | ~813,000 | 2 (Benign, Spam) | CSV | [HuggingFace](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset) |
 | 12 | Spanish Spam/Ham | 1,209 | 2 (Spam, Ham) | CSV | HuggingFace |
 | 13 | Smishing-4C | 120 | 4 Thematic Cats. | CSV | Kaggle / Mendeley |
 | 14 | MIMICS-3500 | 3,500 | 7 / 13 Classes | CSV | Multiple Sources |
+
+> ℹ️ **Note on Dataset #11:** The *Malicious-Benign SMS/MMS* dataset is sourced from HuggingFace at [https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset). Only `dataset_v3.csv` and the synthetic data are strictly required for building the MetaSMS dataset; you do not need to download all Git LFS files (such as the DeBERTa versions).
 
 ## 2. Architectural Structure
 
@@ -45,6 +49,8 @@ tfm_smishing-detection/
 │       ├── train_model.py    # Training script (Baseline & Transformer support)
 │       └── evaluate.py       # Evaluation and visualization utilities
 ├── docs/                     # Extended academic documentation
+│   ├── data_dictionary.md    # Master Data Dictionary and Categories
+│   └── experimentos.md       # Experiments tracking and commands
 ├── requirements.txt
 └── README.md
 ```
