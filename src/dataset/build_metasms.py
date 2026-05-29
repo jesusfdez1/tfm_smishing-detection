@@ -21,28 +21,33 @@ import pandas as pd
 
 from utils.cleaner import DatasetCleaner
 from utils.anonymizer import SMSAnonymizer
+from utils.date_parser import normalize_timestamp
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # Output schema for the master dataset.
 MASTER_FIELDS = [
+    # 1. Core Data (Target & Features)
     "message_id",
-    "text",
-    "text_anonymized",
-    "anonymization_status",
     "canonical_label",
-    "timestamp_original",
-    "source",
+    "text_anonymized",
+    "text",
+    
+    # 2. Provenance (Origin & Traceability)
+    "reference",
     "source_id",
-    "source_url",
     "original_label",
     "label_mapping_rule",
+    "timestamp_original",
     "license",
+    
+    # 3. Processing Metadata
     "language",
     "language_confidence",
-    "is_ai_generated",
-    "generation_model",
+    "anonymization_status",
+    
+    # 4. LLM Enrichment (Phase 2)
     "llm_annotated",
     "llm_model",
     "prompt_version",
@@ -418,12 +423,13 @@ def build_master_row(
     loader_rule = raw.get("label_mapping_rule") or ""
     if loader_rule:
         label_mapping_rule = loader_rule
-    elif canonical_label and original_label.strip().lower() != canonical_label.strip().lower():
+    elif canonical_label:
         label_mapping_rule = f"{original_label}->{canonical_label}"
     else:
         label_mapping_rule = ""
-
-    generation_model = raw.get("generation_model") or ""
+    lang_result = detect_language(llm_text, raw.get("language_hint"))
+    language = lang_result.get("language", "")
+    language_confidence = lang_result.get("language_confidence", 0.0)
 
     return {
         "message_id": f"msg_{uuid.uuid4().hex[:12]}",
@@ -431,17 +437,14 @@ def build_master_row(
         "text_anonymized": llm_text,
         "anonymization_status": anonymization_status,
         "canonical_label": canonical_label or "",
-        "timestamp_original": raw.get("timestamp_original") or "",
-        "source": raw.get("source") or "unknown",
+        "timestamp_original": normalize_timestamp(raw.get("timestamp_original")),
+        "reference": raw.get("source") or "unknown",
         "source_id": raw.get("source_id") or "",
-        "source_url": raw.get("source_url") or "",
         "original_label": original_label,
         "label_mapping_rule": label_mapping_rule,
         "license": raw.get("license") or "",
         "language": language,
-        "language_confidence": language_confidence,
-        "is_ai_generated": int(raw.get("is_ai_generated", 0)),
-        "generation_model": generation_model,
+        "language_confidence": f"{language_confidence:.2f}" if language_confidence else "",
         "llm_annotated": 0,
         "llm_model": "",
         "prompt_version": "",
@@ -733,7 +736,7 @@ def load_exais(path: Path) -> Iterable[Dict[str, Any]]:
 
     with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
         reader = csv.reader(handle)
-        for row in reader:
+        for i, row in enumerate(reader, 1):
             if not row:
                 continue
             label = None
@@ -911,11 +914,6 @@ def build_metasms_dataset(
         "path": raw_dir / "nus_2015_sms_corpus_en.json",
         "loader": lambda p: load_nus(p),
     })
-    sources.append({
-        "name": "smishtank",
-        "path": raw_dir / "smishtank_20_05_2026.jsonl",
-        "loader": lambda p: load_smish(p),
-    })
 
     spanish_dir = raw_dir / "spanish_spam_ham"
     for name in ["train.csv", "test.csv"]:
@@ -960,6 +958,12 @@ def build_metasms_dataset(
         "loader": lambda p: load_mimics_3500(p, chunk_size),
     })
 
+    sources.append({
+        "name": "smishtank",
+        "path": raw_dir / "smishtank_20_05_2026.jsonl",
+        "loader": lambda p: load_smish(p),
+    })
+
     cleaner = DatasetCleaner()
     anonymizer = SMSAnonymizer(
         use_whois=False,
@@ -995,6 +999,15 @@ def build_metasms_dataset(
     output_exists = output_csv.exists()
     open_mode = "a" if resume and output_exists else "w"
 
+    if open_mode == "w":
+        # If we are starting fresh, we MUST clear the old hashes and state 
+        # so we don't falsely skip rows that aren't in the new CSV.
+        if hashes_path.exists():
+            hashes_path.unlink()
+        if state_path.exists():
+            state_path.unlink()
+        seen_hashes = set()
+
     with output_csv.open(open_mode, encoding="utf-8", newline="") as handle, \
         hashes_path.open("a", encoding="utf-8") as hash_handle:
         writer = csv.DictWriter(handle, fieldnames=MASTER_FIELDS)
@@ -1025,7 +1038,7 @@ def build_metasms_dataset(
                 row, dedupe_key = built
 
                 # Drop AI-generated messages when the flag is active.
-                if exclude_ai_generated and row.get("is_ai_generated"):
+                if exclude_ai_generated and raw.get("is_ai_generated"):
                     continue
 
                 if dedupe and dedupe_key:
