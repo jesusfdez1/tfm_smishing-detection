@@ -52,15 +52,6 @@ MASTER_FIELDS = [
     "urgency_level",
 ]
 
-LANGUAGE_MAP = {
-    "portuguese": "pt",
-    "dutch": "nl",
-    "spanish": "es",
-    "english": "en",
-    "french": "fr",
-    "german": "de",
-    "italian": "it",
-}
 
 SOURCE_META = {
     "smishtank": {
@@ -124,9 +115,18 @@ SOURCE_META = {
 
 
 def clean_str(value: Any) -> Optional[str]:
-    """Clean string by removing surrounding whitespace and internal newlines."""
-    if not isinstance(value, str):
+    """Clean string by removing surrounding whitespace and internal newlines.
+    
+    Safely coerces numeric types (e.g., ints from JSON loaders) to strings.
+    """
+    if value is None or value == "":
         return None
+    
+    import math
+    if isinstance(value, float) and math.isnan(value):
+        return None
+        
+    value = str(value)
     # Replace carriage returns and newlines with a single space
     cleaned = value.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
     # Collapse multiple spaces into one
@@ -135,13 +135,27 @@ def clean_str(value: Any) -> Optional[str]:
 
 
 def normalize_language(value: Optional[str]) -> Optional[str]:
-    """Normalize language names to ISO-639-1 codes when possible."""
+    """Resolve a language name or tag to an ISO-639-1 (or -3) code.
+
+    Uses the ``langcodes`` library so any language name recognised by the
+    IANA/BCP-47 registry resolves automatically — no hardcoded lookup table
+    needed.  2-character codes are returned as-is (lowercased).  Unrecognised
+    strings (e.g. 'Mixed (Dutch/French)', 'unknown') return None.
+    """
     if not value:
         return None
-    raw = str(value).strip().lower()
+    raw = str(value).strip()
+    # Already a valid 2-char code — pass through.
     if len(raw) == 2:
-        return raw
-    return LANGUAGE_MAP.get(raw)
+        return raw.lower()
+    try:
+        import langcodes
+        tag = langcodes.find(raw)
+        # .language gives the primary language subtag (ISO 639-1 when available,
+        # otherwise ISO 639-3, e.g. 'fil' for Filipino).
+        return tag.language
+    except (LookupError, Exception):
+        return None
 
 
 def map_label_basic(value: Optional[str]) -> Optional[str]:
@@ -182,25 +196,28 @@ def iso_from_epoch_ms(value: Any) -> Optional[str]:
 
 
 def iter_csv_dicts(path: Path, chunk_size: int, **kwargs: Any) -> Iterable[Dict[str, Any]]:
-    """Yield dict rows from a CSV using chunked reads for large files."""
+    """Yield dict rows from a CSV using chunked reads for large files.
+
+    Callers may override any pandas read_csv keyword via **kwargs, including
+    ``encoding`` (default: utf-8) and ``encoding_errors`` (default: replace).
+    """
+    # Build defaults that callers can override via kwargs
+    read_kwargs: Dict[str, Any] = {
+        "encoding": "utf-8",
+        "encoding_errors": "replace",
+        "on_bad_lines": "skip",
+    }
+    read_kwargs.update(kwargs)
     for chunk in pd.read_csv(
         path,
         chunksize=chunk_size,
         dtype=str,
         keep_default_na=False,
-        encoding="utf-8",
-        encoding_errors="replace",
-        on_bad_lines="skip",
-        **kwargs,
+        **read_kwargs,
     ):
         for record in chunk.to_dict(orient="records"):
             yield record
 
-
-def clean_for_llm(text: str, cleaner: DatasetCleaner, anonymizer: SMSAnonymizer) -> str:
-    """Clean and anonymize text to reduce PII exposure in LLM calls."""
-    cleaned = cleaner.clean(text).get("cleaned", text)
-    return anonymizer.process_message(cleaned).get("anonymized", cleaned)
 
 
 def detect_pre_anonymized(text: str) -> bool:
@@ -211,11 +228,17 @@ def detect_pre_anonymized(text: str) -> bool:
 
 
 def build_dedupe_key(text: str) -> str:
-    """Hash a normalized text string for cross-source deduplication."""
+    """Hash a normalized text string for cross-source deduplication.
+
+    The input should be the cleaned+anonymized text **without** OBF annotation
+    tags (e.g. <OBF_ZWSP>), so that the same message appearing in two datasets
+    — one with obfuscation characters and one without — produces the same hash.
+    """
     if not text:
         return ""
-    # Normalize and hash the anonymized text for cross-source deduplication.
-    normalized = unicodedata.normalize("NFKC", text)
+    # Strip OBF tags appended by DatasetCleaner before hashing.
+    clean = re.sub(r"\s*<OBF_[A-Z_]+>", "", text)
+    normalized = unicodedata.normalize("NFKC", clean)
     normalized = " ".join(normalized.lower().split())
     return hashlib.sha256(normalized.encode("utf-8", errors="ignore")).hexdigest()
 
@@ -232,16 +255,19 @@ def build_output_name(
     use_privacy_filter: bool,
     privacy_filter_model: str,
     dedupe: bool,
+    exclude_ai_generated: bool,
 ) -> Path:
     """Build an output filename that encodes the main pipeline options."""
     privacy_flag = "on" if use_privacy_filter else "off"
     dedupe_flag = "on" if dedupe else "off"
     privacy_token = sanitize_token(privacy_filter_model) if use_privacy_filter else "none"
+    ai_flag = "off" if exclude_ai_generated else "on"
     name = (
         "metasms_hss_unlabeled"
         f"__privacy={privacy_flag}"
         f"__pmodel={privacy_token}"
-        f"__dedupe={dedupe_flag}.csv"
+        f"__dedupe={dedupe_flag}"
+        f"__aimsgs={ai_flag}.csv"
     )
     return output_dir / name
 
@@ -252,6 +278,7 @@ def state_signature(
     privacy_filter_model: str,
     dedupe: bool,
     chunk_size: int,
+    exclude_ai_generated: bool,
 ) -> Dict[str, Any]:
     """Return a stable signature to validate resume compatibility."""
     return {
@@ -260,6 +287,7 @@ def state_signature(
         "privacy_filter_model": privacy_filter_model,
         "dedupe": dedupe,
         "chunk_size": chunk_size,
+        "exclude_ai_generated": exclude_ai_generated,
     }
 
 
@@ -357,15 +385,22 @@ def build_master_row(
     if not text:
         return None
 
-    # Use the anonymized text for language detection, dedupe, and LLM tasks.
-    llm_text = clean_for_llm(text, cleaner, anonymizer)
+    # Apply cleaner first (returns text with optional OBF tags appended).
+    cleaner_result = cleaner.clean(text)
+    cleaned_text = cleaner_result.get("cleaned", text)  # may have <OBF_*> tags
+
+    # Anonymize the cleaned text (mask URLs, phones, emails, etc.).
+    anon_result = anonymizer.process_message(cleaned_text)
+    llm_text = anon_result.get("anonymized", cleaned_text)
+
+    # Determine anonymization status from the *original* text (before any mutation).
     if detect_pre_anonymized(text):
         anonymization_status = "pre_anonymized"
     elif llm_text != text:
         anonymization_status = "anonymized"
     else:
         anonymization_status = "raw"
-        
+
     canonical_label = raw.get("canonical_label")
 
     # Don't skip unlabeled rows, we will label them later in enrich_llm.py
@@ -377,12 +412,19 @@ def build_master_row(
     language = language_data.get("language", "unknown")
     language_confidence = language_data.get("language_confidence", 0.0)
 
+    # Deduplicate on the anonymized text WITHOUT OBF tags so that the same
+    # message with/without obfuscation characters is recognised as identical.
     dedupe_key = build_dedupe_key(llm_text)
 
     original_label = raw.get("original_label") or "unlabeled"
-    
-    if canonical_label and original_label.strip().lower() != canonical_label.strip().lower():
-        label_mapping_rule = raw.get("label_mapping_rule") or f"{original_label}->{canonical_label}"
+
+    # Preserve label_mapping_rule set by the loader when it already exists;
+    # only auto-generate it when the loader left it empty.
+    loader_rule = raw.get("label_mapping_rule") or ""
+    if loader_rule:
+        label_mapping_rule = loader_rule
+    elif canonical_label and original_label.strip().lower() != canonical_label.strip().lower():
+        label_mapping_rule = f"{original_label}->{canonical_label}"
     else:
         label_mapping_rule = ""
 
@@ -438,20 +480,31 @@ def load_mishra(path: Path, source_name: str, chunk_size: int) -> Iterable[Dict[
 
 
 def load_hosseinpour(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
-    """Load Hosseinpour dataset with spam and smishing binary labels."""
+    """Load Hosseinpour dataset with spam and smishing binary labels.
+
+    Label logic:
+    - smishing_label == '1'  → smishing  (takes priority)
+    - spam_label == '1'      → spam
+    - spam_label == '0'      → ham  (explicit negative label)
+    - spam_label == '' or 'Smishing' with smishing_label != '1'
+                             → None (unlabeled; left for LLM enrichment)
+    """
     for row in iter_csv_dicts(path, chunk_size=chunk_size):
         text = clean_str(row.get("message"))
-        spam_label = clean_str(row.get("spam label") or row.get("spam_label"))
-        smish_label = clean_str(row.get("smishing label") or row.get("smishing_label"))
+        spam_label = clean_str(row.get("spam label") or row.get("spam_label")) or ""
+        smish_label = clean_str(row.get("smishing label") or row.get("smishing_label")) or ""
         if not text:
             continue
         canonical = None
-        if smish_label and smish_label.strip() == "1":
+        if smish_label.strip() == "1":
             canonical = "smishing"
-        elif spam_label and spam_label.strip() == "1":
+        elif spam_label.strip() == "1":
             canonical = "spam"
-        else:
+        elif spam_label.strip() == "0":
+            # Explicit negative — both spam and smishing are 0 → ham
             canonical = "ham"
+        # else: spam_label is empty or non-numeric ('Smishing' string without
+        # a corresponding smishing_label==1) → leave canonical=None (unlabeled)
         yield {
             "text": text,
             "canonical_label": canonical,
@@ -460,7 +513,10 @@ def load_hosseinpour(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
             "source_id": None,
             "source_url": SOURCE_META["hosseinpour_2025"]["source_url"],
             "original_label": f"spam_label={spam_label};smishing_label={smish_label}",
-            "label_mapping_rule": "smishing_label==1->smishing; spam_label==1->spam; else->ham",
+            "label_mapping_rule": (
+                "smishing_label==1->smishing; spam_label==1->spam; "
+                "spam_label==0->ham; else->unlabeled"
+            ),
             "license": SOURCE_META["hosseinpour_2025"]["license"],
             "language_hint": None,
         }
@@ -616,10 +672,16 @@ def load_smish(path: Path) -> Iterable[Dict[str, Any]]:
             
             # Comprobar si la comunidad lo ha verificado
             upvotes = int(smish.get("upvotes") or 0)
-            
+            downvotes = int(smish.get("downvotes") or 0)
+
             if upvotes > 0:
                 canonical_label = "smishing"
                 original_label = "smishing (community verified)"
+            elif downvotes > 0:
+                # Community actively marked as suspicious but upvotes not yet accrued;
+                # treat as smishing with lower confidence signal.
+                canonical_label = "smishing"
+                original_label = "smishing (downvotes only, unconfirmed)"
             else:
                 canonical_label = None
                 original_label = "unlabeled (raw submission)"
@@ -639,9 +701,14 @@ def load_smish(path: Path) -> Iterable[Dict[str, Any]]:
 
 
 def load_spanish(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
-    """Load the Spanish spam/ham dataset with mensaje/tipo columns."""
+    """Load the Spanish spam/ham dataset with mensaje/tipo columns.
+
+    Note: train.csv has a leading-space column name ' tipo' (with space).
+    We fall back to the space-prefixed key to handle both variants.
+    """
     for row in iter_csv_dicts(path, chunk_size=chunk_size):
-        label = clean_str(row.get("tipo"))
+        # train.csv has ' tipo' (leading space); test.csv has 'tipo' — handle both
+        label = clean_str(row.get("tipo") or row.get(" tipo"))
         text = clean_str(row.get("mensaje"))
         canonical = map_label_basic(label)
         if not canonical or not text:
@@ -661,10 +728,23 @@ def load_spanish(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
 
 
 def load_exais(path: Path) -> Iterable[Dict[str, Any]]:
-    """Load ExAIS CSV files with variable column layouts."""
+    """Load ExAIS CSV files (Android SMS Backup & Restore format).
+
+    The format is fixed-position:
+      col 0: type (SMS/MMS)
+      col 1: direction (send/receive)
+      col 2-3: address numbers
+      col 4: timestamp  (dd/mm/yyyy HH:MM)
+      col 5: thread ID
+      col 6: label (SPAM/HAM)
+      col 7: message text  ← preferred extraction target
+      col 8+: continuation cells for long messages split by CSV parser
+
+    We prefer col 7 for text and fall back to the max-letters heuristic
+    only when col 7 is empty (guards against edge-case CSV splits).
+    """
     def score_cell(cell: str) -> int:
-        letters = sum(ch.isalpha() for ch in cell)
-        return letters
+        return sum(ch.isalpha() for ch in cell)
 
     with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
         reader = csv.reader(handle)
@@ -678,10 +758,15 @@ def load_exais(path: Path) -> Iterable[Dict[str, Any]]:
                     break
             if not label:
                 continue
-            text_candidates = [cell.strip() for cell in row if cell.strip()]
-            text = None
-            if text_candidates:
-                text = max(text_candidates, key=score_cell)
+            # Column 7 is the message body in the EXAIS fixed format.
+            # Concatenate col 7+ to recover messages split across cells.
+            if len(row) > 7:
+                text = " ".join(c.strip() for c in row[7:] if c.strip())
+            else:
+                # Fallback: pick the cell with the most alphabetic characters
+                candidates = [c.strip() for c in row if c.strip()]
+                text = max(candidates, key=score_cell) if candidates else None
+            text = clean_str(text) if text else None
             if not text:
                 continue
             timestamp_original = None
@@ -730,33 +815,6 @@ def load_malicious_benign(path: Path, chunk_size: int) -> Iterable[Dict[str, Any
         }
 
 
-def load_malicious_benign_synthetic(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
-    """Load synthetic smishing records from the generator outputs."""
-    for row in iter_csv_dicts(path, chunk_size=chunk_size):
-        text = clean_str(row.get("message"))
-        label = clean_str(row.get("label"))
-        if not text:
-            continue
-        canonical = map_binary_label(label, positive_label="spam")
-        if not canonical:
-            continue
-        original = f"label={label};source={clean_str(row.get('source'))}"
-        ai_model = clean_str(row.get("model"))
-        yield {
-            "text": text,
-            "canonical_label": canonical,
-            "timestamp_original": None,
-            "source": "malicious_benign_synthetic",
-            "source_id": None,
-            "source_url": SOURCE_META["malicious_benign_sms_mms"]["source_url"],
-            "original_label": original,
-            "label_mapping_rule": "label==1->spam; label==0->ham",
-            "llm_model": ai_model,
-            "license": SOURCE_META["malicious_benign_sms_mms"]["license"],
-            "language_hint": "en",
-            "is_ai_generated": 1,
-        }
-
 
 def load_smishing_4c(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     """Load Smishing-4C dataset with TYPE category and feature columns."""
@@ -783,8 +841,12 @@ def load_smishing_4c(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
 
 
 def load_mimics_3500(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
-    """Load MIMICS-3500 multi-class smishing dataset."""
-    for row in iter_csv_dicts(path, chunk_size=chunk_size):
+    """Load MIMICS-3500 multi-class smishing dataset.
+
+    Note: the file uses latin-1 encoding (not UTF-8); passing it explicitly
+    avoids silent character corruption via the 'replace' error handler.
+    """
+    for row in iter_csv_dicts(path, chunk_size=chunk_size, encoding="latin-1"):
         text = clean_str(row.get("TEXT"))
         cls7 = clean_str(row.get("7_CLASSES")) or "unknown"
         cls13 = clean_str(row.get("13_CLASSES")) or "unknown"
@@ -814,8 +876,15 @@ def build_metasms_dataset(
     resume: bool,
     checkpoint_every: int,
     chunk_size: int,
+    exclude_ai_generated: bool = True,
 ) -> None:
-    """Build the MetaSMS-HSS dataset from all raw sources."""
+    """Build the MetaSMS-HSS dataset from all raw sources.
+
+    Args:
+        exclude_ai_generated: When True (default), rows where ``is_ai_generated``
+            is truthy are silently dropped before writing.  Pass False to keep
+            them (e.g. for experiments that deliberately include synthetic data).
+    """
     sources = []
 
     sources.append({
@@ -870,7 +939,9 @@ def build_metasms_dataset(
         sources.append({
             "name": f"spanish_spam_ham_{name}",
             "path": spanish_dir / name,
-            "loader": lambda p: load_spanish(p, chunk_size),
+            # Default arg captures current value of chunk_size (not a loop var, but
+            # explicit default arg is the canonical Python pattern for lambda closures).
+            "loader": lambda p, cs=chunk_size: load_spanish(p, cs),
         })
 
     exais_dir = raw_dir / "onashoga_2015_exais_sms_spam"
@@ -878,7 +949,10 @@ def build_metasms_dataset(
         sources.append({
             "name": f"exais_sms_{exais_file.stem}",
             "path": exais_file,
-            "loader": lambda p: load_exais(p),
+            # Capture exais_file by value via default arg to avoid the classic
+            # Python lambda-in-loop late-binding bug (all lambdas would otherwise
+            # share the same final value of exais_file after the loop ends).
+            "loader": lambda p, _f=exais_file: load_exais(_f),
         })
 
     malicious_dir = raw_dir / "malicious_benign_sms_mms"
@@ -890,6 +964,18 @@ def build_metasms_dataset(
             "path": malicious_dir / filename,
             "loader": lambda p: load_malicious_benign(p, chunk_size),
         })
+
+    sources.append({
+        "name": "smishing_4c",
+        "path": raw_dir / "smishing_4C.csv",
+        "loader": lambda p: load_smishing_4c(p, chunk_size),
+    })
+
+    sources.append({
+        "name": "mimics_3500",
+        "path": raw_dir / "mimics_3500_v1.csv",
+        "loader": lambda p: load_mimics_3500(p, chunk_size),
+    })
 
     cleaner = DatasetCleaner()
     anonymizer = SMSAnonymizer(
@@ -910,6 +996,7 @@ def build_metasms_dataset(
         privacy_filter_model,
         dedupe,
         chunk_size,
+        exclude_ai_generated,
     )
 
     if resume and state:
@@ -953,6 +1040,11 @@ def build_metasms_dataset(
                 if not built:
                     continue
                 row, dedupe_key = built
+
+                # Drop AI-generated messages when the flag is active.
+                if exclude_ai_generated and row.get("is_ai_generated"):
+                    continue
+
                 if dedupe and dedupe_key:
                     if dedupe_key in seen_hashes:
                         continue
@@ -995,7 +1087,7 @@ def build_metasms_dataset(
 if __name__ == "__main__":
     import sys
     sys.stdout.reconfigure(encoding='utf-8')
-    
+
     parser = argparse.ArgumentParser(description="Build MetaSMS-HSS dataset from all raw sources")
     parser.add_argument("--raw-dir", type=str, default="data/raw", help="Path to raw datasets root")
     parser.add_argument("--output", type=str, default="", help="Path to save output CSV (auto-named if empty)")
@@ -1005,14 +1097,25 @@ if __name__ == "__main__":
     parser.add_argument("--no-dedupe", action="store_true", help="Disable cross-dataset deduplication")
     parser.add_argument("--resume", action="store_true", help="Resume from previous partial run")
     parser.add_argument("--checkpoint-every", type=int, default=10000, help="Checkpoint every N rows per source")
-    
+    parser.add_argument(
+        "--include-ai-generated",
+        action="store_true",
+        default=False,
+        help=(
+            "Include AI-generated messages in the output dataset. "
+            "By default they are excluded to avoid synthetic bias in training."
+        ),
+    )
+
     args = parser.parse_args()
-    
+    exclude_ai = not args.include_ai_generated
+
     output_csv = Path(args.output) if args.output else build_output_name(
         output_dir=Path("."),
         use_privacy_filter=args.privacy_filter,
         privacy_filter_model=args.privacy_filter_model,
         dedupe=not args.no_dedupe,
+        exclude_ai_generated=exclude_ai,
     )
 
     build_metasms_dataset(
@@ -1024,4 +1127,5 @@ if __name__ == "__main__":
         resume=args.resume,
         checkpoint_every=args.checkpoint_every,
         chunk_size=args.chunk_size,
+        exclude_ai_generated=exclude_ai,
     )

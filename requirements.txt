@@ -7,3 +7,6 @@ transformers>=4.41.0
 torch>=2.3.0
 # Optional: pycld3>=0.22 (requires protoc and build tools on Windows)
 lingua-language-detector>=2.0.0
+# ISO 639 language name → code resolution (replaces hardcoded LANGUAGE_MAP)
+langcodes>=3.4.0
+language_data>=1.2.0

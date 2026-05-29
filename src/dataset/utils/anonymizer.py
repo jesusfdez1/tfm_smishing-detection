@@ -217,7 +217,7 @@ class SMSAnonymizer:
         """
         if not isinstance(text, str):
             text = str(text)
-        
+
         text = self._decode_urls(text)
         text = self._normalize_unicode(text)
         text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
@@ -226,41 +226,54 @@ class SMSAnonymizer:
             return self._process_with_privacy_filter(text)
 
         self.stats["total"] += 1
-        
-        original_len = len(text)
-        extracted_entities = []
-        anonymized_text = text
+
+        # Collect all match spans from all patterns, then apply once in reverse
+        # order so earlier replacements don't shift indices for later ones.
+        # This also avoids str.replace replacing already-substituted tokens.
+        all_spans: List[Tuple[int, int, str]] = []
+        seen_spans: set = set()
 
         for pattern, replacement, *flags in self.patterns:
             flag = flags[0] if flags else 0
-            matches = re.finditer(pattern, anonymized_text, flag)
-            
-            for match in matches:
-                matched_str = match.group(1)
-                
-                entity_info = {
-                    "type": replacement.strip("<>"),
-                    "value": matched_str
-                }
-                
-                if "URL" in replacement and self.use_whois:
-                    w_data = self._get_whois_data(matched_str)
-                    if w_data:
-                        entity_info["whois"] = w_data
-                
-                extracted_entities.append(entity_info)
-                self.stats["replaced"] += 1
+            for match in re.finditer(pattern, text, flag):
+                start, end = match.start(1), match.end(1)
+                # Skip overlapping spans already claimed by a higher-priority pattern
+                if any(s < end and start < e for s, e, _ in seen_spans):
+                    continue
+                all_spans.append((start, end, replacement))
+                seen_spans.add((start, end, replacement))
 
-                anonymized_text = anonymized_text.replace(matched_str, replacement)
-            
-        if len(anonymized_text) == original_len:
+        # Sort by start position; apply in reverse to preserve indices
+        all_spans.sort(key=lambda x: x[0])
+        extracted_entities: List[Dict[str, Any]] = []
+        anonymized_text = text
+
+        for start, end, replacement in reversed(all_spans):
+            matched_str = anonymized_text[start:end]
+            entity_info: Dict[str, Any] = {
+                "type": replacement.strip("<>"),
+                "value": matched_str,
+            }
+            if "URL" in replacement and self.use_whois:
+                w_data = self._get_whois_data(matched_str)
+                if w_data:
+                    entity_info["whois"] = w_data
+            extracted_entities.append(entity_info)
+            self.stats["replaced"] += 1
+            anonymized_text = anonymized_text[:start] + replacement + anonymized_text[end:]
+
+        # Restore chronological order (we built the list in reverse)
+        extracted_entities.reverse()
+
+        if len(all_spans) == 0:
             self.stats["fallback"] += 1
-            
+
         return {
             "original": text,
             "anonymized": anonymized_text,
-            "entities": extracted_entities
+            "entities": extracted_entities,
         }
+
         
     def anonymize(self, text: str) -> str:
         """Convenience wrapper that returns only the anonymized text."""
