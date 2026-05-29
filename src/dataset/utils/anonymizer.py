@@ -24,14 +24,14 @@ class SMSAnonymizer:
     """
     # Map privacy-filter labels to replacement tokens used in the dataset.
     PRIVACY_LABEL_MAP = {
-        "account_number": "<ACCOUNT_NUMBER>",
-        "private_address": "<ADDRESS>",
         "private_email": "<EMAIL>",
         "private_person": "<PERSON>",
         "private_phone": "<PHONE>",
         "private_url": "<URL>",
         "private_date": "<DATE>",
         "secret": "<SECRET>",
+        "account_number": "<ACCOUNT_NUMBER>",
+        "private_address": "<ADDRESS>",
     }
 
     def __init__(

@@ -325,15 +325,16 @@ A small, specialized dataset categorizing phishing/smishing messages by the soci
 A large-scale, highly engineered dataset designed for DeBERTa training. It combines real data (Discord messages, UCI, SpamDam) with heavily generated synthetic data using various LLMs to create balanced smishing classes.
 
 **Key Statistics:**  
-- **Total Records:** Up to 813,546 rows (depends on specific CSV used)  
+- **Total Records:** ~442,282 rows in `dataset_v3` (drops to ~383,247 after strict AI filtering).
 - **Class Distribution:** Highly structured (base: ~365K Benign, ~76K Spam)  
 - **Version:** v3  
 - **Authors/Institution:** Unknown (HuggingFace Community Source)  
 
 **Storage & Format:**  
-- **Location:** `data/raw/malicious_benign_sms_mms/`  
-- **Format:** Directory containing multiple CSVs and synthetic generation scripts.  
-- **Structure:** Includes base text features, labels, and pre-computed engineered features (e.g., character entropies).
+- **Location:** `data/raw/malicious_benign_sms_mms/dataset_v3_undersampled_stratified_full.csv`
+- **Format:** CSV
+- **Structure:** Includes base text features, labels, and a critical `ai_generated` column. 
+- **Important:** The pipeline dynamically filters out any rows where `ai_generated=1` to ensure zero LLM-synthetic data leaks into the final dataset. The synthetic datasets located in `synthetic_data/` are strictly ignored.
 
 **Data Dictionary:**  
 | Attribute | Type | Description |

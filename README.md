@@ -22,12 +22,12 @@ The meta-dataset is dynamically aggregated from **14 independent, heterogeneous 
 | 8 | NUS SMS Corpus | ~67,000 | 1 (Ham) | JSON | [DOI](https://doi.org/10.1007/s10579-012-9197-9) |
 | 9 | Kaggle Spam/Ham | ~10,800 | 2 (Spam, Ham) | CSV | Kaggle |
 | 10 | Kaggle Phishing | 1,001 | 1 (Smishing) | CSV | Kaggle |
-| 11 | Malicious-Benign SMS/MMS | ~813,000 | 2 (Benign, Spam) | CSV | [HuggingFace](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset) |
+| 11 | Malicious-Benign SMS/MMS | ~383,000 (Non-AI) | 2 (Benign, Spam) | CSV | [HuggingFace](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset) |
 | 12 | Spanish Spam/Ham | 1,209 | 2 (Spam, Ham) | CSV | HuggingFace |
 | 13 | Smishing-4C | 120 | 4 Thematic Cats. | CSV | Kaggle / Mendeley |
 | 14 | MIMICS-3500 | 3,500 | 7 / 13 Classes | CSV | Multiple Sources |
 
-> ℹ️ **Note on Dataset #11:** The *Malicious-Benign SMS/MMS* dataset is sourced from HuggingFace at [https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset). Only `dataset_v3.csv` and the synthetic data are strictly required for building the MetaSMS dataset; you do not need to download all Git LFS files (such as the DeBERTa versions).
+> ℹ️ **Note on Dataset #11:** The *Malicious-Benign SMS/MMS* dataset is sourced from HuggingFace at [https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset). Only `dataset_v3_undersampled_stratified_full.csv` is required for building the MetaSMS dataset. All LLM-generated synthetic data has been strictly excluded from this pipeline to maintain data purity and avoid synthetic bias.
 
 ## 2. Architectural Structure
 

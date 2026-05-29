@@ -43,7 +43,6 @@ MASTER_FIELDS = [
     "language_confidence",
     "is_ai_generated",
     "generation_model",
-    "label_inferred_by_ai",
     "llm_annotated",
     "llm_model",
     "prompt_version",
@@ -253,23 +252,19 @@ def sanitize_token(value: str) -> str:
 def build_output_name(
     output_dir: Path,
     use_privacy_filter: bool,
-    privacy_filter_model: str,
     dedupe: bool,
     exclude_ai_generated: bool,
 ) -> Path:
-    """Build an output filename that encodes the main pipeline options."""
-    privacy_flag = "on" if use_privacy_filter else "off"
-    dedupe_flag = "on" if dedupe else "off"
-    privacy_token = sanitize_token(privacy_filter_model) if use_privacy_filter else "none"
-    ai_flag = "off" if exclude_ai_generated else "on"
-    name = (
-        "metasms_hss_unlabeled"
-        f"__privacy={privacy_flag}"
-        f"__pmodel={privacy_token}"
-        f"__dedupe={dedupe_flag}"
-        f"__aimsgs={ai_flag}.csv"
-    )
-    return output_dir / name
+    """Build a concise output filename based on pipeline options."""
+    parts = ["metasms_v1"]
+    if not dedupe:
+        parts.append("nodedupe")
+    if use_privacy_filter:
+        parts.append("privacy")
+    if not exclude_ai_generated:
+        parts.append("with_ai")
+    
+    return output_dir / ("_".join(parts) + ".csv")
 
 
 def state_signature(
@@ -447,7 +442,6 @@ def build_master_row(
         "language_confidence": language_confidence,
         "is_ai_generated": int(raw.get("is_ai_generated", 0)),
         "generation_model": generation_model,
-        "label_inferred_by_ai": 0,
         "llm_annotated": 0,
         "llm_model": "",
         "prompt_version": "",
@@ -459,7 +453,7 @@ def build_master_row(
 
 def load_mishra(path: Path, source_name: str, chunk_size: int) -> Iterable[Dict[str, Any]]:
     """Load Mishra/Soni sources with LABEL/TEXT columns."""
-    for row in iter_csv_dicts(path, chunk_size=chunk_size):
+    for i, row in enumerate(iter_csv_dicts(path, chunk_size=chunk_size), 1):
         label = clean_str(row.get("LABEL") or row.get("label"))
         text = clean_str(row.get("TEXT") or row.get("text"))
         canonical = map_label_basic(label)
@@ -470,10 +464,9 @@ def load_mishra(path: Path, source_name: str, chunk_size: int) -> Iterable[Dict[
             "canonical_label": canonical,
             "timestamp_original": None,
             "source": source_name,
-            "source_id": None,
+            "source_id": str(i),
             "source_url": SOURCE_META[source_name]["source_url"],
             "original_label": label,
-            "label_mapping_rule": f"{label}->{canonical}",
             "license": SOURCE_META[source_name]["license"],
             "language_hint": "en",
         }
@@ -489,7 +482,7 @@ def load_hosseinpour(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     - spam_label == '' or 'Smishing' with smishing_label != '1'
                              → None (unlabeled; left for LLM enrichment)
     """
-    for row in iter_csv_dicts(path, chunk_size=chunk_size):
+    for i, row in enumerate(iter_csv_dicts(path, chunk_size=chunk_size), 1):
         text = clean_str(row.get("message"))
         spam_label = clean_str(row.get("spam label") or row.get("spam_label")) or ""
         smish_label = clean_str(row.get("smishing label") or row.get("smishing_label")) or ""
@@ -510,13 +503,10 @@ def load_hosseinpour(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
             "canonical_label": canonical,
             "timestamp_original": None,
             "source": "hosseinpour_2025",
-            "source_id": None,
+            "source_id": str(i),
             "source_url": SOURCE_META["hosseinpour_2025"]["source_url"],
             "original_label": f"spam_label={spam_label};smishing_label={smish_label}",
-            "label_mapping_rule": (
-                "smishing_label==1->smishing; spam_label==1->spam; "
-                "spam_label==0->ham; else->unlabeled"
-            ),
+            "label_mapping_rule": "smishing_label==1->smishing; spam_label==1->spam; spam_label==0->ham; else->unlabeled",
             "license": SOURCE_META["hosseinpour_2025"]["license"],
             "language_hint": None,
         }
@@ -524,7 +514,7 @@ def load_hosseinpour(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
 
 def load_kaggle_spam_ham(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     """Load Kaggle spam/ham dataset with target/text columns."""
-    for row in iter_csv_dicts(path, chunk_size=chunk_size):
+    for i, row in enumerate(iter_csv_dicts(path, chunk_size=chunk_size), 1):
         label = clean_str(row.get("target"))
         text = clean_str(row.get("text"))
         canonical = map_label_basic(label)
@@ -535,10 +525,9 @@ def load_kaggle_spam_ham(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]
             "canonical_label": canonical,
             "timestamp_original": None,
             "source": "kaggle_spam_ham",
-            "source_id": None,
+            "source_id": str(i),
             "source_url": SOURCE_META["kaggle_spam_ham"]["source_url"],
             "original_label": label,
-            "label_mapping_rule": f"{label}->{canonical}",
             "license": SOURCE_META["kaggle_spam_ham"]["license"],
             "language_hint": None,
         }
@@ -546,7 +535,7 @@ def load_kaggle_spam_ham(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]
 
 def load_kaggle_phishing(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     """Load Kaggle phishing dataset and map to smishing."""
-    for row in iter_csv_dicts(path, chunk_size=chunk_size):
+    for i, row in enumerate(iter_csv_dicts(path, chunk_size=chunk_size), 1):
         label = clean_str(row.get("label"))
         category = clean_str(row.get("category"))
         text = clean_str(row.get("text"))
@@ -561,10 +550,10 @@ def load_kaggle_phishing(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]
             "canonical_label": canonical,
             "timestamp_original": None,
             "source": "kaggle_phishing",
-            "source_id": None,
+            "source_id": str(i),
             "source_url": SOURCE_META["kaggle_phishing"]["source_url"],
             "original_label": original,
-            "label_mapping_rule": "phishing->smishing",
+            "label_mapping_rule": "implicit_smishing",
             "license": SOURCE_META["kaggle_phishing"]["license"],
             "language_hint": None,
         }
@@ -572,7 +561,7 @@ def load_kaggle_phishing(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]
 
 def load_agarwal(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     """Load Agarwal IMC dataset using text or translation field."""
-    for row in iter_csv_dicts(path, chunk_size=chunk_size):
+    for i, row in enumerate(iter_csv_dicts(path, chunk_size=chunk_size), 1):
         text = clean_str(row.get("text")) or clean_str(row.get("translation"))
         if not text:
             continue
@@ -582,7 +571,7 @@ def load_agarwal(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
             "canonical_label": "smishing",
             "timestamp_original": clean_str(row.get("time")),
             "source": "agarwal_2025",
-            "source_id": None,
+            "source_id": str(i),
             "source_url": SOURCE_META["agarwal_2025"]["source_url"],
             "original_label": "smishing",
             "label_mapping_rule": "implicit_smishing",
@@ -593,13 +582,13 @@ def load_agarwal(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
 
 def load_uci(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     """Load UCI SMS Spam Collection TSV (label, text)."""
-    for row in iter_csv_dicts(
+    for i, row in enumerate(iter_csv_dicts(
         path,
         chunk_size=chunk_size,
         sep="\t",
         header=None,
         names=["label", "text"],
-    ):
+    ), 1):
         label = clean_str(row.get("label"))
         text = clean_str(row.get("text"))
         canonical = map_label_basic(label)
@@ -610,10 +599,9 @@ def load_uci(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
             "canonical_label": canonical,
             "timestamp_original": None,
             "source": "uci_sms_spam",
-            "source_id": None,
+            "source_id": str(i),
             "source_url": SOURCE_META["uci_sms_spam"]["source_url"],
             "original_label": label,
-            "label_mapping_rule": f"{label}->{canonical}",
             "license": SOURCE_META["uci_sms_spam"]["license"],
             "language_hint": "en",
         }
@@ -627,14 +615,14 @@ def load_nus(path: Path) -> Iterable[Dict[str, Any]]:
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         data = json.load(handle)
     messages = data.get("smsCorpus", {}).get("message", [])
-    for msg in messages:
+    for i, msg in enumerate(messages, 1):
         text = msg.get("text", {})
         if isinstance(text, dict):
             text = text.get("$")
         text = clean_str(text)
         if not text:
             continue
-        source_id = clean_str(msg.get("@id"))
+        source_id = clean_str(msg.get("@id")) or str(i)
         yield {
             "text": text,
             "canonical_label": "ham",
@@ -675,16 +663,15 @@ def load_smish(path: Path) -> Iterable[Dict[str, Any]]:
             downvotes = int(smish.get("downvotes") or 0)
 
             if upvotes > 0:
-                canonical_label = "smishing"
                 original_label = "smishing (community verified)"
             elif downvotes > 0:
-                # Community actively marked as suspicious but upvotes not yet accrued;
-                # treat as smishing with lower confidence signal.
-                canonical_label = "smishing"
-                original_label = "smishing (downvotes only, unconfirmed)"
+                original_label = "unlabeled (community rejected/downvoted)"
             else:
-                canonical_label = None
-                original_label = "unlabeled (raw submission)"
+                original_label = "unlabeled (0 votes)"
+            
+            # The user requested to leave all SmishTank records unlabeled 
+            # so the LLM evaluates every single one from scratch.
+            canonical_label = None
 
             yield {
                 "text": text,
@@ -694,7 +681,6 @@ def load_smish(path: Path) -> Iterable[Dict[str, Any]]:
                 "source_id": source_id,
                 "source_url": source_url or SOURCE_META["smishtank"]["source_url"],
                 "original_label": original_label,
-                "label_mapping_rule": "", # Será sobreescrito dinámicamente en build_master_row
                 "license": SOURCE_META["smishtank"]["license"],
                 "language_hint": None,
             }
@@ -706,7 +692,7 @@ def load_spanish(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     Note: train.csv has a leading-space column name ' tipo' (with space).
     We fall back to the space-prefixed key to handle both variants.
     """
-    for row in iter_csv_dicts(path, chunk_size=chunk_size):
+    for i, row in enumerate(iter_csv_dicts(path, chunk_size=chunk_size), 1):
         # train.csv has ' tipo' (leading space); test.csv has 'tipo' — handle both
         label = clean_str(row.get("tipo") or row.get(" tipo"))
         text = clean_str(row.get("mensaje"))
@@ -718,10 +704,9 @@ def load_spanish(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
             "canonical_label": canonical,
             "timestamp_original": None,
             "source": "spanish_spam_ham",
-            "source_id": None,
+            "source_id": str(i),
             "source_url": SOURCE_META["spanish_spam_ham"]["source_url"],
             "original_label": label,
-            "label_mapping_rule": f"{label}->{canonical}",
             "license": SOURCE_META["spanish_spam_ham"]["license"],
             "language_hint": "es",
         }
@@ -782,10 +767,9 @@ def load_exais(path: Path) -> Iterable[Dict[str, Any]]:
                 "canonical_label": canonical,
                 "timestamp_original": timestamp_original,
                 "source": "exais_sms",
-                "source_id": None,
+                "source_id": str(i),
                 "source_url": SOURCE_META["exais_sms"]["source_url"],
                 "original_label": label,
-                "label_mapping_rule": f"{label}->{canonical}",
                 "license": SOURCE_META["exais_sms"]["license"],
                 "language_hint": "en",
             }
@@ -793,7 +777,7 @@ def load_exais(path: Path) -> Iterable[Dict[str, Any]]:
 
 def load_malicious_benign(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     """Load malicious/benign dataset variants with message/label fields."""
-    for row in iter_csv_dicts(path, chunk_size=chunk_size, usecols=["message", "label", "ai_generated"]):
+    for i, row in enumerate(iter_csv_dicts(path, chunk_size=chunk_size, usecols=["message", "label", "ai_generated"]), 1):
         text = clean_str(row.get("message"))
         label = clean_str(row.get("label"))
         ai_generated = clean_str(row.get("ai_generated"))
@@ -805,7 +789,7 @@ def load_malicious_benign(path: Path, chunk_size: int) -> Iterable[Dict[str, Any
             "canonical_label": canonical,
             "timestamp_original": None,
             "source": "malicious_benign_sms_mms",
-            "source_id": None,
+            "source_id": str(i),
             "source_url": SOURCE_META["malicious_benign_sms_mms"]["source_url"],
             "original_label": f"label={label};ai_generated={ai_generated}",
             "label_mapping_rule": "label==1->spam; label==0->ham",
@@ -819,7 +803,7 @@ def load_malicious_benign(path: Path, chunk_size: int) -> Iterable[Dict[str, Any
 def load_smishing_4c(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     """Load Smishing-4C dataset with TYPE category and feature columns."""
     feature_cols = ["SLANG", "COMPANY", "Length_value", "Num_writing_errors", "Phone", "URL"]
-    for row in iter_csv_dicts(path, chunk_size=chunk_size):
+    for i, row in enumerate(iter_csv_dicts(path, chunk_size=chunk_size), 1):
         text = clean_str(row.get("TEXT-ENG"))
         stype = clean_str(row.get("TYPE")) or "unknown"
         if not text:
@@ -831,7 +815,7 @@ def load_smishing_4c(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
             "canonical_label": "smishing",
             "timestamp_original": None,
             "source": "smishing_4c",
-            "source_id": None,
+            "source_id": str(i),
             "source_url": SOURCE_META["smishing_4c"]["source_url"],
             "original_label": f"{stype} [{features_str}]",
             "label_mapping_rule": "implicit_smishing",
@@ -846,7 +830,7 @@ def load_mimics_3500(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     Note: the file uses latin-1 encoding (not UTF-8); passing it explicitly
     avoids silent character corruption via the 'replace' error handler.
     """
-    for row in iter_csv_dicts(path, chunk_size=chunk_size, encoding="latin-1"):
+    for i, row in enumerate(iter_csv_dicts(path, chunk_size=chunk_size, encoding="latin-1"), 1):
         text = clean_str(row.get("TEXT"))
         cls7 = clean_str(row.get("7_CLASSES")) or "unknown"
         cls13 = clean_str(row.get("13_CLASSES")) or "unknown"
@@ -858,10 +842,9 @@ def load_mimics_3500(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
             "canonical_label": "smishing",
             "timestamp_original": None,
             "source": "mimics_3500",
-            "source_id": None,
+            "source_id": str(i),
             "source_url": SOURCE_META["mimics_3500"]["source_url"],
             "original_label": f"7class={cls7};13class={cls13};dataset={dataset}",
-            "label_mapping_rule": "implicit_smishing",
             "license": SOURCE_META["mimics_3500"]["license"],
             "language_hint": "en",
         }
@@ -1111,9 +1094,8 @@ if __name__ == "__main__":
     exclude_ai = not args.include_ai_generated
 
     output_csv = Path(args.output) if args.output else build_output_name(
-        output_dir=Path("."),
+        output_dir=Path("data/processed"),
         use_privacy_filter=args.privacy_filter,
-        privacy_filter_model=args.privacy_filter_model,
         dedupe=not args.no_dedupe,
         exclude_ai_generated=exclude_ai,
     )
