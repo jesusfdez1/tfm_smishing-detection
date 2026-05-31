@@ -54,6 +54,7 @@ MASTER_FIELDS = [
     "llm_annotation_date",
     "theme",
     "urgency_level",
+    "entities",
 ]
 
 
@@ -448,6 +449,7 @@ def build_master_row(
         "llm_annotation_date": "",
         "theme": 0,
         "urgency_level": 0,
+        "entities": json.dumps(anon_result.get("entities", [])) if anon_result.get("entities") else "[]",
     }, dedupe_key
 
 
@@ -970,17 +972,17 @@ def build_metasms_dataset(
 
     cleaner = DatasetCleaner()
     anonymizer = SMSAnonymizer(
-        use_whois=False,
         use_privacy_filter=use_privacy_filter,
         privacy_filter_model=privacy_filter_model,
     )
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
-    total_written = 0
-
+    
     state_path = output_csv.with_suffix(".state.json")
     hashes_path = output_csv.with_suffix(".hashes.txt")
     state = load_resume_state(state_path) if resume else {}
+    if "sources" not in state:
+        state["sources"] = {}
     signature = state_signature(
         raw_dir,
         use_privacy_filter,
@@ -1024,17 +1026,17 @@ def build_metasms_dataset(
                 logger.warning("Source missing, skipped: %s", path)
                 continue
             logger.info("Processing %s", source["name"])
-            source_count = 0
-            source_seen = 0
             source_name = source["name"]
-            source_offset = 0
-            if resume:
-                source_offset = int(state.get("sources", {}).get(source_name, {}).get("seen", 0))
+            source_count = int(state["sources"].get(source_name, {}).get("written", 0)) if resume else 0
+            source_offset = int(state["sources"].get(source_name, {}).get("seen", 0)) if resume else 0
+            current_seen = 0
 
             for raw in source["loader"](path):
-                source_seen += 1
-                if resume and source_seen <= source_offset:
+                current_seen += 1
+                if resume and current_seen <= source_offset:
                     continue
+                
+                source_seen = current_seen
 
                 built = build_master_row(raw, cleaner, anonymizer)
                 if not built:
@@ -1056,32 +1058,26 @@ def build_metasms_dataset(
 
                 # Periodic checkpoints allow safe resume after interruptions.
                 if checkpoint_every and source_seen % checkpoint_every == 0:
-                    state = {
-                        "version": 1,
-                        "options": signature,
-                        "sources": {
-                            **state.get("sources", {}),
-                            source_name: {"seen": source_seen, "written": source_count},
-                        },
-                        "total_written": total_written + source_count,
-                    }
+                    state["version"] = 1
+                    state["options"] = signature
+                    state["sources"][source_name] = {"seen": source_seen, "written": source_count}
+                    state["total_written"] = sum(s.get("written", 0) for s in state["sources"].values())
                     save_resume_state(state_path, state)
+                    handle.flush()
+                    hash_handle.flush()
             
             logger.info("Finished %s: %d records", source["name"], source_count)
-            total_written += source_count
 
-            state = {
-                "version": 1,
-                "options": signature,
-                "sources": {
-                    **state.get("sources", {}),
-                    source_name: {"seen": source_seen, "written": source_count},
-                },
-                "total_written": total_written,
-            }
+            state["version"] = 1
+            state["options"] = signature
+            state["sources"][source_name] = {"seen": source_seen if 'source_seen' in locals() else source_offset, "written": source_count}
+            state["total_written"] = sum(s.get("written", 0) for s in state["sources"].values())
             save_resume_state(state_path, state)
+            handle.flush()
+            hash_handle.flush()
 
-    logger.info("MetaSMS-HSS dataset built successfully. Total records: %d", total_written)
+    final_total = state.get("total_written", 0)
+    logger.info("MetaSMS-HSS dataset built successfully. Total records: %d", final_total)
     logger.info("Saved to: %s", output_csv)
 
 if __name__ == "__main__":

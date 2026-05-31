@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 from utils.llm_enricher import LLMMetadataAnnotator
+from utils.whois_enricher import WhoisEnricher
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 def process_batch(
     batch_buffer: List[Dict[str, Any]],
     annotator: LLMMetadataAnnotator,
+    whois_enricher: WhoisEnricher,
     use_label_llm: bool,
     writer: csv.DictWriter,
 ) -> int:
@@ -64,6 +66,25 @@ def process_batch(
         row["theme"] = llm_primary.get("theme", 0)
         row["urgency_level"] = llm_primary.get("urgency_level", 0)
         
+        # Add WHOIS enrichment
+        if whois_enricher:
+            import json
+            try:
+                entities_str = row.get("entities", "[]")
+                if entities_str and entities_str.strip() != "[]":
+                    entities = json.loads(entities_str)
+                    modified = False
+                    for entity in entities:
+                        if entity.get("type") == "URL" and "value" in entity:
+                            w_data = whois_enricher.get_whois_data(entity["value"])
+                            if w_data:
+                                entity["whois"] = w_data
+                                modified = True
+                    if modified:
+                        row["entities"] = json.dumps(entities)
+            except Exception as e:
+                logger.debug(f"Failed to process WHOIS for row: {e}")
+        
         
 
         # Update label if it was missing and we are allowed to infer it
@@ -88,15 +109,15 @@ def enrich_dataset(
     model_name: str,
     batch_size: int,
     use_label_llm: bool,
-    use_mock: bool,
 ) -> None:
-    """Read un-annotated dataset and run batch LLM enrichment."""
+    """Read un-annotated dataset and run batch LLM and WHOIS enrichment."""
     if not input_csv.exists():
         logger.error("Input file not found: %s", input_csv)
         return
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
-    annotator = LLMMetadataAnnotator(use_mock=use_mock, model_name=model_name)
+    annotator = LLMMetadataAnnotator(use_mock=False, model_name=model_name)
+    whois_enricher = WhoisEnricher()
     
     total_written = 0
     batch_buffer = []
@@ -116,7 +137,7 @@ def enrich_dataset(
             batch_buffer.append(row)
             if len(batch_buffer) >= batch_size:
                 total_written += process_batch(
-                    batch_buffer, annotator, use_label_llm, writer
+                    batch_buffer, annotator, whois_enricher, use_label_llm, writer
                 )
                 batch_buffer.clear()
                 logger.info("Enriched %d rows...", total_written)
@@ -127,7 +148,7 @@ def enrich_dataset(
         # Process remaining
         if batch_buffer:
             total_written += process_batch(
-                batch_buffer, annotator, use_label_llm, writer
+                batch_buffer, annotator, whois_enricher, use_label_llm, writer
             )
             batch_buffer.clear()
             logger.info("Enriched %d rows...", total_written)
@@ -146,7 +167,6 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default="gemini-2.5-flash", help="LLM model name to use. E.g. 'gemini-2.5-flash', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile'. If it starts with 'llama', it will use the Groq provider.")
     parser.add_argument("--batch-size", type=int, default=30, help="Number of rows to process in one LLM call")
     parser.add_argument("--label-llm", action="store_true", help="Use LLM to infer canonical_label for unlabeled rows")
-    parser.add_argument("--mock", action="store_true", help="Use mock heuristics instead of actual API (for testing)")
     
     args = parser.parse_args()
     
@@ -156,5 +176,4 @@ if __name__ == "__main__":
         model_name=args.model,
         batch_size=args.batch_size,
         use_label_llm=args.label_llm,
-        use_mock=args.mock
     )

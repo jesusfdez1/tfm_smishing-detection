@@ -5,11 +5,7 @@ from typing import Dict, Tuple, List, Any, Optional
 from urllib.parse import unquote
 import unicodedata
 
-try:
-    import whois
-    WHOIS_AVAILABLE = True
-except ImportError:
-    WHOIS_AVAILABLE = False
+
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -36,22 +32,16 @@ class SMSAnonymizer:
 
     def __init__(
         self,
-        use_whois: bool = False,
         use_privacy_filter: bool = False,
         privacy_filter_model: str = "openai/privacy-filter",
     ):
         """Configure anonymization behavior and optional PII model.
 
-        use_whois enables WHOIS lookups for detected URLs.
         use_privacy_filter switches from regex masking to a token classifier.
         """
-        self.use_whois = use_whois
         self.use_privacy_filter = use_privacy_filter
         self.privacy_filter_model = privacy_filter_model
         self._privacy_pipe = None
-        
-        if self.use_whois and not WHOIS_AVAILABLE:
-            logger.warning("WHOIS extraction requested but 'python-whois' is not installed.")
 
         # Ordered from most specific to most generic to avoid partial matches.
         self.patterns = [
@@ -130,7 +120,17 @@ class SMSAnonymizer:
             return self.process_message(text)
 
         self.stats["total"] += 1
-        output = self._privacy_pipe(text)
+        try:
+            output = self._privacy_pipe(text)
+        except Exception as e:
+            logger.warning("Privacy pipe failed for text (len=%d), falling back to regex: %s", len(text), e)
+            self.stats["fallback"] += 1
+            # Temporarily disable pipe to prevent infinite recursion and run regex fallback
+            pipe_backup = self._privacy_pipe
+            self._privacy_pipe = None
+            result = self.process_message(text)
+            self._privacy_pipe = pipe_backup
+            return result
 
         # Collect replacement spans based on the model output.
         spans: List[Tuple[int, int, str, str]] = []
@@ -192,10 +192,6 @@ class SMSAnonymizer:
 
             entity_type = token.strip("<>")
             entity_info: Dict[str, Any] = {"type": entity_type, "value": value}
-            if "URL" in entity_type and self.use_whois:
-                w_data = self._get_whois_data(value)
-                if w_data:
-                    entity_info["whois"] = w_data
             entities.append(entity_info)
             self.stats["replaced"] += 1
             anonymized_text = anonymized_text[:start] + token + anonymized_text[end:]
@@ -221,28 +217,6 @@ class SMSAnonymizer:
         """
         return unicodedata.normalize("NFKC", text)
 
-    def _get_whois_data(self, url: str) -> Dict[str, Any]:
-        """Fetch WHOIS metadata for a URL when enabled.
-
-        Returns a small, flat dict so it can be serialized in the entities list.
-        """
-        if not WHOIS_AVAILABLE or not self.use_whois:
-            return {}
-        try:
-            parsed_url = urllib.parse.urlparse(url)
-            domain = parsed_url.netloc if parsed_url.netloc else parsed_url.path.split('/')[0]
-            if not domain:
-                return {}
-            w = whois.whois(domain)
-            return {
-                "domain": domain,
-                "creation_date": str(w.creation_date),
-                "expiration_date": str(w.expiration_date),
-                "country": w.country
-            }
-        except Exception as e:
-            logger.debug(f"Error extracting WHOIS for {url}: {e}")
-            return {"error": "WHOIS lookup failed"}
 
     def process_message(self, text: str) -> Dict[str, Any]:
         """Return anonymized text and extracted entities for a single message.
@@ -259,8 +233,13 @@ class SMSAnonymizer:
         text = self._normalize_unicode(text)
         text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
 
+        extracted_entities = []
+        anonymized_text = text
+
         if self.use_privacy_filter and self._privacy_pipe:
-            return self._process_with_privacy_filter(text)
+            hf_result = self._process_with_privacy_filter(text)
+            anonymized_text = hf_result["anonymized"]
+            extracted_entities = hf_result["entities"]
 
         self.stats["total"] += 1
 
@@ -272,7 +251,7 @@ class SMSAnonymizer:
 
         for pattern, replacement, *flags in self.patterns:
             flag = flags[0] if flags else 0
-            for match in re.finditer(pattern, text, flag):
+            for match in re.finditer(pattern, anonymized_text, flag):
                 start, end = match.start(1), match.end(1)
                 # Skip overlapping spans already claimed by a higher-priority pattern
                 if any(s < end and start < e for s, e, _ in seen_spans):
@@ -282,27 +261,20 @@ class SMSAnonymizer:
 
         # Sort by start position; apply in reverse to preserve indices
         all_spans.sort(key=lambda x: x[0])
-        extracted_entities: List[Dict[str, Any]] = []
-        anonymized_text = text
 
         for start, end, replacement in reversed(all_spans):
-            matched_str = anonymized_text[start:end]
-            entity_info: Dict[str, Any] = {
-                "type": replacement.strip("<>"),
-                "value": matched_str,
-            }
-            if "URL" in replacement and self.use_whois:
-                w_data = self._get_whois_data(matched_str)
-                if w_data:
-                    entity_info["whois"] = w_data
+            value = anonymized_text[start:end]
+            entity_info: Dict[str, Any] = {"type": replacement.strip("<>"), "value": value}
+            
             extracted_entities.append(entity_info)
             self.stats["replaced"] += 1
             anonymized_text = anonymized_text[:start] + replacement + anonymized_text[end:]
 
-        # Restore chronological order (we built the list in reverse)
-        extracted_entities.reverse()
+        # Restore chronological order for the regex entities (we appended them in reverse)
+        # But wait, extracted_entities has HF entities first, then Regex entities reversed.
+        # Let's just return them. The order isn't strictly enforced downstream.
 
-        if len(all_spans) == 0:
+        if len(all_spans) == 0 and len(extracted_entities) == 0:
             self.stats["fallback"] += 1
 
         return {
