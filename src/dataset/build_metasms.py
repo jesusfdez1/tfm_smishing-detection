@@ -427,9 +427,6 @@ def build_master_row(
         label_mapping_rule = f"{original_label}->{canonical_label}"
     else:
         label_mapping_rule = ""
-    lang_result = detect_language(llm_text, raw.get("language_hint"))
-    language = lang_result.get("language", "")
-    language_confidence = lang_result.get("language_confidence", 0.0)
 
     return {
         "message_id": f"msg_{uuid.uuid4().hex[:12]}",
@@ -492,15 +489,19 @@ def load_hosseinpour(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
         if not text:
             continue
         canonical = None
+        rule_applied = "else->unlabeled"
+        
         if smish_label.strip() == "1":
             canonical = "smishing"
+            rule_applied = "smishing_label==1->smishing"
         elif spam_label.strip() == "1":
             canonical = "spam"
+            rule_applied = "spam_label==1->spam"
         elif spam_label.strip() == "0":
             # Explicit negative — both spam and smishing are 0 → ham
             canonical = "ham"
-        # else: spam_label is empty or non-numeric ('Smishing' string without
-        # a corresponding smishing_label==1) → leave canonical=None (unlabeled)
+            rule_applied = "spam_label==0->ham"
+            
         yield {
             "text": text,
             "canonical_label": canonical,
@@ -509,7 +510,7 @@ def load_hosseinpour(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
             "source_id": str(i),
             "source_url": SOURCE_META["hosseinpour_2025"]["source_url"],
             "original_label": f"spam_label={spam_label};smishing_label={smish_label}",
-            "label_mapping_rule": "smishing_label==1->smishing; spam_label==1->spam; spam_label==0->ham; else->unlabeled",
+            "label_mapping_rule": rule_applied,
             "license": SOURCE_META["hosseinpour_2025"]["license"],
             "language_hint": None,
         }
@@ -787,6 +788,9 @@ def load_malicious_benign(path: Path, chunk_size: int) -> Iterable[Dict[str, Any
         canonical = map_binary_label(label, positive_label="spam")
         if not canonical or not text:
             continue
+            
+        rule_applied = f"label=={label}->{canonical}"
+        
         yield {
             "text": text,
             "canonical_label": canonical,
@@ -795,7 +799,7 @@ def load_malicious_benign(path: Path, chunk_size: int) -> Iterable[Dict[str, Any
             "source_id": str(i),
             "source_url": SOURCE_META["malicious_benign_sms_mms"]["source_url"],
             "original_label": f"label={label};ai_generated={ai_generated}",
-            "label_mapping_rule": "label==1->spam; label==0->ham",
+            "label_mapping_rule": rule_applied,
             "license": SOURCE_META["malicious_benign_sms_mms"]["license"],
             "language_hint": "en",
             "is_ai_generated": int(ai_generated) if ai_generated and ai_generated.strip() in {"1", "true"} else 0,

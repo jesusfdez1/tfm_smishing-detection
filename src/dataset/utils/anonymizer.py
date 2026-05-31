@@ -92,12 +92,16 @@ class SMSAnonymizer:
         """
         try:
             from transformers import pipeline
+            import torch
 
+            device = 0 if torch.cuda.is_available() else -1
+            
             # Token classification pipeline for privacy span detection.
             self._privacy_pipe = pipeline(
                 "token-classification",
                 model=self.privacy_filter_model,
                 aggregation_strategy="simple",
+                device=device,
             )
         except Exception as exc:
             logger.warning("Privacy filter unavailable, falling back to regex: %s", exc)
@@ -147,12 +151,45 @@ class SMSAnonymizer:
             return {"original": text, "anonymized": text, "entities": []}
 
         spans.sort(key=lambda x: x[0])
+        
+        # Merge overlapping or adjacent spans of the same token type
+        merged_spans = []
+        for start, end, token, normalized in spans:
+            if not merged_spans:
+                merged_spans.append([start, end, token, normalized])
+            else:
+                last_start, last_end, last_token, last_normalized = merged_spans[-1]
+                # If they overlap, or are adjacent (only separated by whitespace) and have the same token
+                if start <= last_end:
+                    # Overlap: merge them
+                    merged_spans[-1][1] = max(last_end, end)
+                elif text[last_end:start].strip() == "" and token == last_token:
+                    # Adjacent with same token: merge them
+                    merged_spans[-1][1] = end
+                else:
+                    merged_spans.append([start, end, token, normalized])
+
         anonymized_text = text
         entities: List[Dict[str, Any]] = []
 
-        # Apply replacements from the end to keep indices valid.
-        for start, end, token, _ in reversed(spans):
+        for start, end, token, _ in reversed(merged_spans):
             value = text[start:end]
+            
+            # The Hugging Face pipeline often includes leading/trailing spaces in the entity span.
+            # We want to preserve those spaces in the text so we don't accidentally glue words together.
+            import re
+            m_prefix = re.match(r"^(\s+)", value)
+            if m_prefix:
+                prefix_len = len(m_prefix.group(1))
+                start += prefix_len
+                value = value[prefix_len:]
+                
+            m_suffix = re.search(r"(\s+)$", value)
+            if m_suffix:
+                suffix_len = len(m_suffix.group(1))
+                end -= suffix_len
+                value = value[:-suffix_len]
+
             entity_type = token.strip("<>")
             entity_info: Dict[str, Any] = {"type": entity_type, "value": value}
             if "URL" in entity_type and self.use_whois:

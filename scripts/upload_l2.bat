@@ -8,7 +8,7 @@ echo ===================================================
 cd /d "%USERPROFILE%\Documents\GitHub\tfm_smishing-detection"
 
 :: Comprime todo excluyendo las carpetas pesadas/inútiles
-tar -czf envio_cluster.tar.gz --exclude=".git" --exclude=".venv" --exclude="__pycache__" --exclude=".mypy_cache" .
+tar -czf envio_cluster.tar.gz --exclude="envio_cluster.tar.gz" --exclude=".git" --exclude=".venv" --exclude="__pycache__" --exclude=".mypy_cache" .
 
 echo.
 echo ===================================================
