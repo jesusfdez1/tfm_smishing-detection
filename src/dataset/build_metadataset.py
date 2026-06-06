@@ -375,84 +375,106 @@ def detect_language(text: str, hint: Optional[str]) -> Dict[str, Any]:
     return {"language": detected, "language_confidence": confidence}
 
 
+def build_master_rows(
+    raws: List[Dict[str, Any]],
+    cleaner: DatasetCleaner,
+    anonymizer: SMSAnonymizer,
+) -> List[Optional[Tuple[Dict[str, Any], str]]]:
+    """Build normalized master rows and return dedupe keys for a batch of raw inputs."""
+    results = [None] * len(raws)
+    valid_indices = []
+    texts_to_clean = []
+
+    # 1. Extract texts
+    for i, raw in enumerate(raws):
+        text = clean_str(raw.get("text"))
+        if text:
+            valid_indices.append(i)
+            texts_to_clean.append(text)
+
+    if not texts_to_clean:
+        return results
+
+    # 2. Clean texts
+    cleaned_texts = []
+    for text in texts_to_clean:
+        cleaner_result = cleaner.clean(text)
+        cleaned_texts.append(cleaner_result.get("cleaned", text))
+
+    # 3. Batched anonymization
+    anon_results = anonymizer.process_messages(cleaned_texts)
+
+    # 4. Build final rows
+    for i, idx in enumerate(valid_indices):
+        raw = raws[idx]
+        text = texts_to_clean[i]
+        cleaned_text = cleaned_texts[i]
+        anon_result = anon_results[i]
+
+        llm_text = anon_result.get("anonymized", cleaned_text)
+
+        if detect_pre_anonymized(text):
+            anonymization_status = "pre_anonymized"
+        elif llm_text != text:
+            anonymization_status = "anonymized"
+        else:
+            anonymization_status = "raw"
+
+        canonical_label = raw.get("canonical_label")
+
+        language_data = detect_language(llm_text, raw.get("language_hint"))
+        language = language_data.get("language", "unknown")
+        language_confidence = language_data.get("language_confidence", 0.0)
+
+        dedupe_key = build_dedupe_key(cleaned_text)
+
+        original_label = raw.get("original_label") or "unlabeled"
+
+        loader_rule = raw.get("label_mapping_rule") or ""
+        if loader_rule:
+            label_mapping_rule = loader_rule
+        elif canonical_label:
+            label_mapping_rule = f"{original_label}->{canonical_label}"
+        else:
+            label_mapping_rule = ""
+
+        row = {
+            "message_id": f"msg_{uuid.uuid4().hex[:12]}",
+            "text": text,
+            "text_anonymized": llm_text,
+            "anonymization_status": anonymization_status,
+            "canonical_label": canonical_label or "",
+            "timestamp_original": normalize_timestamp(raw.get("timestamp_original")),
+            "reference": raw.get("source") or "unknown",
+            "source_id": raw.get("source_id") or "",
+            "original_label": original_label,
+            "label_mapping_rule": label_mapping_rule,
+            "license": raw.get("license") or "",
+            "language": language,
+            "language_confidence": f"{language_confidence:.2f}" if language_confidence else "",
+            "llm_model": "",
+            "prompt_version": "",
+            "llm_annotation_date": "",
+            "theme": "",
+            "urgency_level": "",
+            "whois_domain": "",
+            "whois_tld": "",
+            "whois_age_days": "",
+            "whois_hidden": "",
+            "whois_country": "",
+        }
+        results[idx] = (row, dedupe_key)
+
+    return results
+
+
 def build_master_row(
     raw: Dict[str, Any],
     cleaner: DatasetCleaner,
     anonymizer: SMSAnonymizer,
 ) -> Optional[Tuple[Dict[str, Any], str]]:
-    """Build a normalized master row and return a dedupe key."""
-    text = clean_str(raw.get("text"))
-    if not text:
-        return None
-
-    # Apply cleaner first (returns text with optional OBF tags appended).
-    cleaner_result = cleaner.clean(text)
-    cleaned_text = cleaner_result.get("cleaned", text)  # may have <OBF_*> tags
-
-    # Anonymize the cleaned text (mask URLs, phones, emails, etc.).
-    anon_result = anonymizer.process_message(cleaned_text)
-    llm_text = anon_result.get("anonymized", cleaned_text)
-
-    # Determine anonymization status from the *original* text (before any mutation).
-    if detect_pre_anonymized(text):
-        anonymization_status = "pre_anonymized"
-    elif llm_text != text:
-        anonymization_status = "anonymized"
-    else:
-        anonymization_status = "raw"
-
-    canonical_label = raw.get("canonical_label")
-
-    # Don't skip unlabeled rows, we will label them later in enrich_llm.py
-    # if not canonical_label:
-    #     logger.warning("Skipped unlabeled row from source=%s", raw.get("source"))
-    #     return None
-
-    language_data = detect_language(llm_text, raw.get("language_hint"))
-    language = language_data.get("language", "unknown")
-    language_confidence = language_data.get("language_confidence", 0.0)
-
-    # Deduplicate on the anonymized text WITHOUT OBF tags so that the same
-    # message with/without obfuscation characters is recognised as identical.
-    dedupe_key = build_dedupe_key(llm_text)
-
-    original_label = raw.get("original_label") or "unlabeled"
-
-    # Preserve label_mapping_rule set by the loader when it already exists;
-    # only auto-generate it when the loader left it empty.
-    loader_rule = raw.get("label_mapping_rule") or ""
-    if loader_rule:
-        label_mapping_rule = loader_rule
-    elif canonical_label:
-        label_mapping_rule = f"{original_label}->{canonical_label}"
-    else:
-        label_mapping_rule = ""
-
-    return {
-        "message_id": f"msg_{uuid.uuid4().hex[:12]}",
-        "text": text,
-        "text_anonymized": llm_text,
-        "anonymization_status": anonymization_status,
-        "canonical_label": canonical_label or "",
-        "timestamp_original": normalize_timestamp(raw.get("timestamp_original")),
-        "reference": raw.get("source") or "unknown",
-        "source_id": raw.get("source_id") or "",
-        "original_label": original_label,
-        "label_mapping_rule": label_mapping_rule,
-        "license": raw.get("license") or "",
-        "language": language,
-        "language_confidence": f"{language_confidence:.2f}" if language_confidence else "",
-        "llm_model": "",
-        "prompt_version": "",
-        "llm_annotation_date": "",
-        "theme": "",
-        "urgency_level": "",
-        "whois_domain": "",
-        "whois_tld": "",
-        "whois_age_days": "",
-        "whois_hidden": "",
-        "whois_country": "",
-    }, dedupe_key
+    """Convenience wrapper for single row."""
+    return build_master_rows([raw], cleaner, anonymizer)[0]
 
 
 def load_mishra(path: Path, source_name: str, chunk_size: int) -> Iterable[Dict[str, Any]]:
@@ -942,6 +964,9 @@ def build_metasms_dataset(
 
     if resume and state:
         if state.get("options") != signature:
+            logger.error("State options mismatch.")
+            logger.error(f"Expected (from state.json): {state.get('options')}")
+            logger.error(f"Got (from arguments): {signature}")
             raise ValueError("Resume options do not match the existing state file.")
 
     # Cache of hashes to prevent duplicate rows across sources.
@@ -978,6 +1003,7 @@ def build_metasms_dataset(
             source_count = int(state["sources"].get(source_name, {}).get("written", 0)) if resume else 0
             source_offset = int(state["sources"].get(source_name, {}).get("seen", 0)) if resume else 0
             current_seen = 0
+            batch_raws = []
 
             for raw in source["loader"](path):
                 current_seen += 1
@@ -986,33 +1012,57 @@ def build_metasms_dataset(
                 
                 source_seen = current_seen
 
-                built = build_master_row(raw, cleaner, anonymizer)
-                if not built:
-                    continue
-                row, dedupe_key = built
-
                 # Drop AI-generated messages when the flag is active.
                 if exclude_ai_generated and raw.get("is_ai_generated"):
                     continue
 
-                if dedupe and dedupe_key:
-                    if dedupe_key in seen_hashes:
-                        continue
-                    seen_hashes.add(dedupe_key)
-                    hash_handle.write(dedupe_key + "\n")
-                
-                writer.writerow(row)
-                source_count += 1
+                batch_raws.append(raw)
 
-                # Periodic checkpoints allow safe resume after interruptions.
-                if checkpoint_every and source_seen % checkpoint_every == 0:
-                    state["version"] = 1
-                    state["options"] = signature
-                    state["sources"][source_name] = {"seen": source_seen, "written": source_count}
-                    state["total_written"] = sum(s.get("written", 0) for s in state["sources"].values())
-                    save_resume_state(state_path, state)
-                    handle.flush()
-                    hash_handle.flush()
+                if len(batch_raws) >= 128:
+                    builts = build_master_rows(batch_raws, cleaner, anonymizer)
+                    for built in builts:
+                        if not built:
+                            continue
+                        row, dedupe_key = built
+
+                        if dedupe and dedupe_key:
+                            if dedupe_key in seen_hashes:
+                                continue
+                            seen_hashes.add(dedupe_key)
+                            hash_handle.write(dedupe_key + "\n")
+                        
+                        writer.writerow(row)
+                        source_count += 1
+
+                    batch_raws.clear()
+
+                    # Periodic checkpoints allow safe resume after interruptions.
+                    if checkpoint_every and source_seen % checkpoint_every < 128:
+                        state["version"] = 1
+                        state["options"] = signature
+                        state["sources"][source_name] = {"seen": source_seen, "written": source_count}
+                        state["total_written"] = sum(s.get("written", 0) for s in state["sources"].values())
+                        save_resume_state(state_path, state)
+                        handle.flush()
+                        hash_handle.flush()
+
+            # Process remaining rows in the batch
+            if batch_raws:
+                builts = build_master_rows(batch_raws, cleaner, anonymizer)
+                for built in builts:
+                    if not built:
+                        continue
+                    row, dedupe_key = built
+
+                    if dedupe and dedupe_key:
+                        if dedupe_key in seen_hashes:
+                            continue
+                        seen_hashes.add(dedupe_key)
+                        hash_handle.write(dedupe_key + "\n")
+                    
+                    writer.writerow(row)
+                    source_count += 1
+                batch_raws.clear()
             
             logger.info("Finished %s: %d records", source["name"], source_count)
 

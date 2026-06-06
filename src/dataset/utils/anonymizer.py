@@ -93,10 +93,42 @@ class SMSAnonymizer:
                 aggregation_strategy="simple",
                 device=device,
             )
-        except Exception as exc:
-            logger.warning("Privacy filter unavailable, falling back to regex: %s", exc)
-            self.use_privacy_filter = False
+            # Add padding token if missing (required for batch processing)
+            if self._privacy_pipe.tokenizer.pad_token is None:
+                self._privacy_pipe.tokenizer.pad_token = self._privacy_pipe.tokenizer.eos_token
+                
+            logger.info("Privacy filter pipeline initialized (model=%s, device=%s)", 
+                        self.privacy_filter_model, device)
+        except Exception as e:
+            logger.warning("Failed to initialize privacy filter, using regex fallback: %s", e)
             self._privacy_pipe = None
+
+    def _process_with_privacy_filter_batch(self, texts: List[str]) -> List[List[Dict[str, Any]]]:
+        """Mask PII spans using the privacy-filter model output for a batch of texts.
+        
+        Returns a list of extracted entities for each text.
+        """
+        if not self._privacy_pipe:
+            raise RuntimeError("Privacy pipe not initialized")
+            
+        self.stats["total"] += len(texts)
+        try:
+            # HuggingFace pipeline emits a false positive warning if __call__ is invoked >10 times,
+            # even if we are passing batches. Reset call_count to suppress it.
+            if hasattr(self._privacy_pipe, "call_count"):
+                self._privacy_pipe.call_count = 0
+                
+            # Batch inference
+            return self._privacy_pipe(texts, batch_size=32)
+        except Exception as e:
+            logger.warning("Privacy pipe failed for batch (size=%d), falling back: %s", len(texts), e)
+            self.stats["fallback"] += len(texts)
+            # Temporarily disable pipe to prevent infinite recursion and run regex fallback
+            pipe_backup = self._privacy_pipe
+            self._privacy_pipe = None
+            # Return empty entities so it falls back to regex for all
+            self._privacy_pipe = pipe_backup
+            return [[] for _ in texts]
 
     @staticmethod
     def _normalize_privacy_label(label: str) -> Optional[str]:
@@ -192,56 +224,75 @@ class SMSAnonymizer:
 
     def process_message(self, text: str) -> Dict[str, Any]:
         """Return anonymized text and extracted entities for a single message.
+        
+        This is a convenience wrapper around process_messages for a single string.
+        """
+        return self.process_messages([text])[0]
+
+    def process_messages(self, texts: List[str]) -> List[Dict[str, Any]]:
+        """Return anonymized text and extracted entities for a batch of messages.
 
         The output includes:
         - original: normalized text used for matching
         - anonymized: text with replacement tokens
         """
-        if not isinstance(text, str):
-            text = str(text)
+        processed_texts = []
+        for text in texts:
+            if not isinstance(text, str):
+                text = str(text)
+            text = self._decode_urls(text)
+            text = self._normalize_unicode(text)
+            text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
+            processed_texts.append(text)
 
-        text = self._decode_urls(text)
-        text = self._normalize_unicode(text)
-        text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
-
-        anonymized_text = text
+        anonymized_texts = list(processed_texts)
+        entities_batch = [[] for _ in texts]
 
         if self.use_privacy_filter and self._privacy_pipe:
-            hf_result = self._process_with_privacy_filter(text)
-            anonymized_text = hf_result["anonymized"]
+            entities_batch = self._process_with_privacy_filter_batch(processed_texts)
+            # Reemplazar tokens usando el modelo de IA
+            for i, output in enumerate(entities_batch):
+                anon_text = processed_texts[i]
+                for entity in sorted(output, key=lambda x: x["start"], reverse=True):
+                    word = entity["word"]
+                    label = entity["entity_group"]
+                    anon_text = anon_text[:entity["start"]] + f"<{label}>" + anon_text[entity["end"]:]
+                anonymized_texts[i] = anon_text
 
-        self.stats["total"] += 1
+        results = []
+        for i, text in enumerate(processed_texts):
+            self.stats["total"] += 1
+            anon_text = anonymized_texts[i]
 
-        # Collect all match spans from all patterns, then apply once in reverse
-        # order so earlier replacements don't shift indices for later ones.
-        # This also avoids str.replace replacing already-substituted tokens.
-        all_spans: List[Tuple[int, int, str]] = []
-        seen_spans: set = set()
+            # Collect all match spans from all patterns, then apply once in reverse
+            all_spans: List[Tuple[int, int, str]] = []
+            seen_spans: set = set()
 
-        for pattern, replacement, *flags in self.patterns:
-            flag = flags[0] if flags else 0
-            for match in re.finditer(pattern, anonymized_text, flag):
-                start, end = match.start(1), match.end(1)
-                # Skip overlapping spans already claimed by a higher-priority pattern
-                if any(s < end and start < e for s, e, _ in seen_spans):
-                    continue
-                all_spans.append((start, end, replacement))
-                seen_spans.add((start, end, replacement))
+            for pattern, replacement, *flags in self.patterns:
+                flag = flags[0] if flags else 0
+                for match in re.finditer(pattern, anon_text, flag):
+                    start, end = match.start(1), match.end(1)
+                    if any(s < end and start < e for s, e, _ in seen_spans):
+                        continue
+                    all_spans.append((start, end, replacement))
+                    seen_spans.add((start, end, replacement))
 
-        # Sort by start position; apply in reverse to preserve indices
-        all_spans.sort(key=lambda x: x[0])
+            all_spans.sort(key=lambda x: x[0])
 
-        for start, end, replacement in reversed(all_spans):
-            self.stats["replaced"] += 1
-            anonymized_text = anonymized_text[:start] + replacement + anonymized_text[end:]
+            for start, end, replacement in reversed(all_spans):
+                self.stats["replaced"] += 1
+                anon_text = anon_text[:start] + replacement + anon_text[end:]
 
-        if len(all_spans) == 0:
-            self.stats["fallback"] += 1
+            if len(all_spans) == 0 and not entities_batch[i]:
+                self.stats["fallback"] += 1
 
-        return {
-            "original": text,
-            "anonymized": anonymized_text,
-        }
+            results.append({
+                "original": text,
+                "anonymized": anon_text,
+                "entities": entities_batch[i]
+            })
+
+        return results
 
         
     def anonymize(self, text: str) -> str:
