@@ -124,6 +124,7 @@ def enrich_dataset(
     output_csv: Path,
     model_name: str,
     batch_size: int,
+    resume: bool = False,
 ) -> None:
     """Read un-annotated dataset and run batch LLM and WHOIS enrichment."""
     if not input_csv.exists():
@@ -136,9 +137,25 @@ def enrich_dataset(
     
     total_written = 0
     batch_buffer = []
+    
+    processed_ids = set()
+    mode = "w"
+    if resume and output_csv.exists():
+        mode = "a"
+        try:
+            with output_csv.open("r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if "message_id" in row:
+                        processed_ids.add(row["message_id"])
+            logger.info("Resuming: found %d already processed records in %s", len(processed_ids), output_csv)
+        except Exception as e:
+            logger.error("Failed to read output CSV for resuming: %s", e)
+            mode = "w"
+            processed_ids = set()
 
     with input_csv.open("r", encoding="utf-8") as in_handle, \
-         output_csv.open("w", encoding="utf-8", newline="") as out_handle:
+         output_csv.open(mode, encoding="utf-8", newline="") as out_handle:
         
         reader = csv.DictReader(in_handle)
         if not reader.fieldnames:
@@ -146,9 +163,13 @@ def enrich_dataset(
             return
             
         writer = csv.DictWriter(out_handle, fieldnames=reader.fieldnames)
-        writer.writeheader()
+        if mode == "w":
+            writer.writeheader()
 
         for row in reader:
+            if resume and row.get("message_id") in processed_ids:
+                continue
+
             batch_buffer.append(row)
             if len(batch_buffer) >= batch_size:
                 total_written += process_batch(
@@ -181,6 +202,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, required=True, help="Path to save enriched output CSV")
     parser.add_argument("--model", type=str, default="gemini-2.5-flash", help="LLM model name to use. E.g. 'gemini-2.5-flash', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile'. If it starts with 'llama', it will use the Groq provider.")
     parser.add_argument("--batch-size", type=int, default=15, help="Number of rows to process in one LLM call")
+    parser.add_argument("--resume", action="store_true", help="Resume from previous partial run by skipping already processed rows in output CSV")
     
     args = parser.parse_args()
     
@@ -189,4 +211,5 @@ if __name__ == "__main__":
         output_csv=Path(args.output),
         model_name=args.model,
         batch_size=args.batch_size,
+        resume=args.resume,
     )

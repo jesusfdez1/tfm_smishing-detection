@@ -37,7 +37,7 @@ echo "=================================================="
 python -m pip install -r requirements.txt
 
 # Ejecutamos el script tal cual indica el manual
-python src/dataset/build_metasms.py --privacy-filter --resume --checkpoint-every 5000 --chunk-size 5000
+python src/dataset/build_metadataset.py --privacy-filter --resume --checkpoint-every 5000 --chunk-size 5000
 
 echo "=================================================="
 echo "Proceso finalizado."
