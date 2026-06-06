@@ -148,7 +148,7 @@ class SMSAnonymizer:
 
         if not spans:
             self.stats["fallback"] += 1
-            return {"original": text, "anonymized": text, "entities": []}
+            return {"original": text, "anonymized": text}
 
         spans.sort(key=lambda x: x[0])
         
@@ -170,37 +170,9 @@ class SMSAnonymizer:
                     merged_spans.append([start, end, token, normalized])
 
         anonymized_text = text
-        entities: List[Dict[str, Any]] = []
-
-        for start, end, token, _ in reversed(merged_spans):
-            value = text[start:end]
-            
-            # The Hugging Face pipeline often includes leading/trailing spaces in the entity span.
-            # We want to preserve those spaces in the text so we don't accidentally glue words together.
-            import re
-            m_prefix = re.match(r"^(\s+)", value)
-            if m_prefix:
-                prefix_len = len(m_prefix.group(1))
-                start += prefix_len
-                value = value[prefix_len:]
-                
-            m_suffix = re.search(r"(\s+)$", value)
-            if m_suffix:
-                suffix_len = len(m_suffix.group(1))
-                end -= suffix_len
-                value = value[:-suffix_len]
-
-            entity_type = token.strip("<>")
-            entity_info: Dict[str, Any] = {"type": entity_type, "value": value}
-            entities.append(entity_info)
-            self.stats["replaced"] += 1
-            anonymized_text = anonymized_text[:start] + token + anonymized_text[end:]
-
-        entities.reverse()
         return {
             "original": text,
             "anonymized": anonymized_text,
-            "entities": entities,
         }
 
     def _decode_urls(self, text: str) -> str:
@@ -224,7 +196,6 @@ class SMSAnonymizer:
         The output includes:
         - original: normalized text used for matching
         - anonymized: text with replacement tokens
-        - entities: list of extracted spans and types
         """
         if not isinstance(text, str):
             text = str(text)
@@ -233,13 +204,11 @@ class SMSAnonymizer:
         text = self._normalize_unicode(text)
         text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
 
-        extracted_entities = []
         anonymized_text = text
 
         if self.use_privacy_filter and self._privacy_pipe:
             hf_result = self._process_with_privacy_filter(text)
             anonymized_text = hf_result["anonymized"]
-            extracted_entities = hf_result["entities"]
 
         self.stats["total"] += 1
 
@@ -263,24 +232,15 @@ class SMSAnonymizer:
         all_spans.sort(key=lambda x: x[0])
 
         for start, end, replacement in reversed(all_spans):
-            value = anonymized_text[start:end]
-            entity_info: Dict[str, Any] = {"type": replacement.strip("<>"), "value": value}
-            
-            extracted_entities.append(entity_info)
             self.stats["replaced"] += 1
             anonymized_text = anonymized_text[:start] + replacement + anonymized_text[end:]
 
-        # Restore chronological order for the regex entities (we appended them in reverse)
-        # But wait, extracted_entities has HF entities first, then Regex entities reversed.
-        # Let's just return them. The order isn't strictly enforced downstream.
-
-        if len(all_spans) == 0 and len(extracted_entities) == 0:
+        if len(all_spans) == 0:
             self.stats["fallback"] += 1
 
         return {
             "original": text,
             "anonymized": anonymized_text,
-            "entities": extracted_entities,
         }
 
         

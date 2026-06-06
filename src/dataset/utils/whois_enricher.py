@@ -1,6 +1,7 @@
 import logging
 import urllib.parse
 import time
+import datetime
 from typing import Dict, Any, Optional
 
 try:
@@ -35,13 +36,30 @@ class WhoisEnricher:
             time.sleep(0.5) # Slight delay to respect rate limits on public servers
             
             w = whois.whois(domain)
+            
+            # Calculate age in days
+            age_days = -1
+            if w.creation_date:
+                # creation_date can be a list if multiple dates are returned
+                c_date = w.creation_date[0] if isinstance(w.creation_date, list) else w.creation_date
+                if isinstance(c_date, datetime.datetime):
+                    age_days = (datetime.datetime.now() - c_date).days
+            
+            # Detect privacy/hidden registration
+            is_hidden = False
+            privacy_keywords = ["privacy", "redacted", "protect", "whoisguard", "proxy", "hidden", "statutory", "masked"]
+            org = str(w.org).lower() if w.org else ""
+            registrar = str(w.registrar).lower() if w.registrar else ""
+            
+            if any(k in org for k in privacy_keywords) or any(k in registrar for k in privacy_keywords):
+                is_hidden = True
+                
             result = {
                 "domain": domain,
-                "creation_date": str(w.creation_date),
-                "expiration_date": str(w.expiration_date),
-                "country": w.country,
-                "org": w.org,
-                "registrar": w.registrar
+                "age_days": age_days,
+                "hidden": is_hidden,
+                "country": w.country or "Unknown",
+                "registrar": w.registrar or "Unknown"
             }
             self._cache[domain] = result
             return result

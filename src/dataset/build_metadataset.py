@@ -48,21 +48,20 @@ MASTER_FIELDS = [
     "anonymization_status",
     
     # 4. LLM Enrichment (Phase 2)
-    "llm_annotated",
     "llm_model",
     "prompt_version",
     "llm_annotation_date",
     "theme",
     "urgency_level",
-    "entities",
+    "whois_domain",
+    "whois_tld",
+    "whois_age_days",
+    "whois_hidden",
+    "whois_country",
 ]
 
 
 SOURCE_META = {
-    "smishtank": {
-        "license": "Academic Use Only",
-        "source_url": "https://smishtank.com/",
-    },
     "mishra_soni_2022": {
         "license": "Research Use",
         "source_url": "https://doi.org/10.17632/f45bkkt8pr.1",
@@ -443,13 +442,16 @@ def build_master_row(
         "license": raw.get("license") or "",
         "language": language,
         "language_confidence": f"{language_confidence:.2f}" if language_confidence else "",
-        "llm_annotated": 0,
         "llm_model": "",
         "prompt_version": "",
         "llm_annotation_date": "",
-        "theme": 0,
-        "urgency_level": 0,
-        "entities": json.dumps(anon_result.get("entities", [])) if anon_result.get("entities") else "[]",
+        "theme": "",
+        "urgency_level": "",
+        "whois_domain": "",
+        "whois_tld": "",
+        "whois_age_days": "",
+        "whois_hidden": "",
+        "whois_country": "",
     }, dedupe_key
 
 
@@ -641,56 +643,6 @@ def load_nus(path: Path) -> Iterable[Dict[str, Any]]:
             "license": SOURCE_META["nus_sms"]["license"],
             "language_hint": "en",
         }
-
-
-def load_smish(path: Path) -> Iterable[Dict[str, Any]]:
-    """Load Smishtank JSONL records and map to smishing or leave unlabeled based on community evaluation."""
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            smish = payload.get("raw", {}).get("smish", {})
-            text = smish.get("messageContent") or smish.get("rawText")
-            text = clean_str(text)
-            if not text:
-                continue
-            ts = smish.get("timeSubmitted") or smish.get("timeReceived")
-            timestamp_original = iso_from_epoch_ms(ts)
-            source_id = clean_str(smish.get("messageID") or payload.get("message_id"))
-            source_url = clean_str(smish.get("url"))
-            
-            # Comprobar si la comunidad lo ha verificado
-            upvotes = int(smish.get("upvotes") or 0)
-            downvotes = int(smish.get("downvotes") or 0)
-
-            if upvotes > 0:
-                original_label = "smishing (community verified)"
-            elif downvotes > 0:
-                original_label = "unlabeled (community rejected/downvoted)"
-            else:
-                original_label = "unlabeled (0 votes)"
-            
-            # The user requested to leave all SmishTank records unlabeled 
-            # so the LLM evaluates every single one from scratch.
-            canonical_label = None
-
-            yield {
-                "text": text,
-                "canonical_label": canonical_label,
-                "timestamp_original": timestamp_original,
-                "source": "smishtank",
-                "source_id": source_id,
-                "source_url": source_url or SOURCE_META["smishtank"]["source_url"],
-                "original_label": original_label,
-                "license": SOURCE_META["smishtank"]["license"],
-                "language_hint": None,
-            }
-
 
 def load_spanish(path: Path, chunk_size: int) -> Iterable[Dict[str, Any]]:
     """Load the Spanish spam/ham dataset with mensaje/tipo columns.
@@ -964,11 +916,7 @@ def build_metasms_dataset(
         "loader": lambda p: load_mimics_3500(p, chunk_size),
     })
 
-    sources.append({
-        "name": "smishtank",
-        "path": raw_dir / "smishtank_20_05_2026.jsonl",
-        "loader": lambda p: load_smish(p),
-    })
+
 
     cleaner = DatasetCleaner()
     anonymizer = SMSAnonymizer(

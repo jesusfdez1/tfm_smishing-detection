@@ -23,7 +23,6 @@ def process_batch(
     batch_buffer: List[Dict[str, Any]],
     annotator: LLMMetadataAnnotator,
     whois_enricher: WhoisEnricher,
-    use_label_llm: bool,
     writer: csv.DictWriter,
 ) -> int:
     """Process a batch of rows, querying the LLM in one go, and write to CSV."""
@@ -38,8 +37,10 @@ def process_batch(
         llm_text = row.get("text_anonymized") or row.get("text")
         llm_texts.append(llm_text)
         
-        needs_label = not row.get("canonical_label")
-        should_call_llm = True  # In this enrichment phase, we enrich everything
+        needs_theme = not row.get("theme") or str(row.get("theme")).strip() == ""
+        
+        # Only call LLM if we are missing the theme
+        should_call_llm = needs_theme
         
         if should_call_llm:
             indices_to_annotate.append(i)
@@ -56,46 +57,61 @@ def process_batch(
     # Update rows and write
     written_count = 0
     for i, row in enumerate(batch_buffer):
-        llm_primary = llm_results_map.get(i, {})
         
-        # Update metadata
-        row["llm_annotated"] = 1 if llm_primary.get("llm_annotated") else 0
-        row["llm_model"] = llm_primary.get("llm_model", "")
-        row["prompt_version"] = llm_primary.get("prompt_version", "")
-        row["llm_annotation_date"] = llm_primary.get("llm_annotation_date", "")
-        row["theme"] = llm_primary.get("theme", 0)
-        row["urgency_level"] = llm_primary.get("urgency_level", 0)
+        # Update metadata only if we actually queried the LLM for this row
+        if i in indices_to_annotate:
+            llm_primary = llm_results_map.get(i, {})
+            row["llm_model"] = llm_primary.get("llm_model", "")
+            row["prompt_version"] = llm_primary.get("prompt_version", "")
+            row["llm_annotation_date"] = llm_primary.get("llm_annotation_date", "")
+            row["theme"] = llm_primary.get("theme", "unknown")
+            row["urgency_level"] = llm_primary.get("urgency_level", "none")
         
-        # Add WHOIS enrichment
-        if whois_enricher:
+        # Clean up legacy entities column if it exists in the input
+        row.pop("entities", None)
+        
+        # Add WHOIS enrichment ONLY if it hasn't been done yet
+        if whois_enricher and not row.get("whois_domain"):
+            row["whois_domain"] = ""
+            row["whois_tld"] = ""
+            row["whois_age_days"] = ""
+            row["whois_hidden"] = ""
+            row["whois_country"] = ""
+            
             import json
+            import re
             try:
-                entities_str = row.get("entities", "[]")
-                if entities_str and entities_str.strip() != "[]":
-                    entities = json.loads(entities_str)
-                    modified = False
-                    for entity in entities:
-                        if entity.get("type") == "URL" and "value" in entity:
-                            w_data = whois_enricher.get_whois_data(entity["value"])
-                            if w_data:
-                                entity["whois"] = w_data
-                                modified = True
-                    if modified:
-                        row["entities"] = json.dumps(entities)
+                text = row.get("text", "")
+                urls = re.findall(r"(?:https?://[^\s]+|[a-zA-Z0-9.-]+\.(?:com|org|net|info|biz|me|ly|co|us|uk|es|fr|ru)(?::\d+)?(?:/[^\s>]*)?)", text)
+                
+                best_w_data = None
+                best_score = -9999
+                
+                for url in set(urls):
+                    url = url.rstrip('.,;:"\'()')
+                    w_data = whois_enricher.get_whois_data(url)
+                    if w_data:
+                        # Score: +10 if hidden. -age_days if known (younger = better score). If age unknown (-1), give it a low penalty.
+                        score = 10 if w_data["hidden"] else 0
+                        if w_data["age_days"] >= 0:
+                            score -= w_data["age_days"] # e.g. 5 days old = -5 penalty. 100 days old = -100 penalty.
+                        else:
+                            score -= 365 # Unknown age is treated as 1 year old for scoring purposes
+                            
+                        if score > best_score:
+                            best_score = score
+                            best_w_data = w_data
+                
+                if best_w_data:
+                    domain_str = best_w_data["domain"]
+                    row["whois_domain"] = domain_str
+                    # Extract TLD simply by taking everything after the last dot
+                    row["whois_tld"] = domain_str.split('.')[-1] if '.' in domain_str else ""
+                    row["whois_age_days"] = best_w_data["age_days"] if best_w_data["age_days"] >= 0 else ""
+                    row["whois_hidden"] = 1 if best_w_data["hidden"] else 0
+                    row["whois_country"] = best_w_data["country"]
             except Exception as e:
                 logger.debug(f"Failed to process WHOIS for row: {e}")
-        
-        
-
-        # Update label if it was missing and we are allowed to infer it
-        if not row.get("canonical_label") and use_label_llm:
-            predicted = llm_primary.get("label")
-            if predicted in {"ham", "spam", "smishing"}:
-                row["canonical_label"] = predicted
-                row["label_inferred_by_ai"] = 1
-                
-                original_label = row.get("original_label") or "unlabeled"
-                row["label_mapping_rule"] = f"{original_label}->{predicted} (LLM Inference)"
 
         writer.writerow(row)
         written_count += 1
@@ -108,7 +124,6 @@ def enrich_dataset(
     output_csv: Path,
     model_name: str,
     batch_size: int,
-    use_label_llm: bool,
 ) -> None:
     """Read un-annotated dataset and run batch LLM and WHOIS enrichment."""
     if not input_csv.exists():
@@ -137,7 +152,7 @@ def enrich_dataset(
             batch_buffer.append(row)
             if len(batch_buffer) >= batch_size:
                 total_written += process_batch(
-                    batch_buffer, annotator, whois_enricher, use_label_llm, writer
+                    batch_buffer, annotator, whois_enricher, writer
                 )
                 batch_buffer.clear()
                 logger.info("Enriched %d rows...", total_written)
@@ -148,7 +163,7 @@ def enrich_dataset(
         # Process remaining
         if batch_buffer:
             total_written += process_batch(
-                batch_buffer, annotator, whois_enricher, use_label_llm, writer
+                batch_buffer, annotator, whois_enricher, writer
             )
             batch_buffer.clear()
             logger.info("Enriched %d rows...", total_written)
@@ -165,8 +180,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=str, required=True, help="Path to input unlabeled CSV")
     parser.add_argument("--output", type=str, required=True, help="Path to save enriched output CSV")
     parser.add_argument("--model", type=str, default="gemini-2.5-flash", help="LLM model name to use. E.g. 'gemini-2.5-flash', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile'. If it starts with 'llama', it will use the Groq provider.")
-    parser.add_argument("--batch-size", type=int, default=30, help="Number of rows to process in one LLM call")
-    parser.add_argument("--label-llm", action="store_true", help="Use LLM to infer canonical_label for unlabeled rows")
+    parser.add_argument("--batch-size", type=int, default=15, help="Number of rows to process in one LLM call")
     
     args = parser.parse_args()
     
@@ -175,5 +189,4 @@ if __name__ == "__main__":
         output_csv=Path(args.output),
         model_name=args.model,
         batch_size=args.batch_size,
-        use_label_llm=args.label_llm,
     )

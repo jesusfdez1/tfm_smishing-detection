@@ -42,9 +42,10 @@ tfm_smishing-detection/
 │   └── results/              # ML artifacts (weights, metrics, confusion matrices)
 ├── src/
 │   ├── dataset/              # Data Engineering & ETL Pipeline
-│   │   ├── build_metasms.py  # Master pipeline execution script
+│   │   ├── build_metadataset.py # Master dataset aggregation script
+│   │   ├── enrich_metadataset.py # LLM enrichment and feature extraction
 │   │   ├── create_subset.py  # CLI utility for stratified subset creation
-│   │   └── utils/            # Core ETL modules (anonymization, deduplication)
+│   │   └── utils/            # Core ETL modules (anonymization, LLM, deduplication)
 │   └── experiments/          # ML Experimental Framework
 │       ├── train_model.py    # Training script (Baseline & Transformer support)
 │       └── evaluate.py       # Evaluation and visualization utilities
@@ -62,14 +63,14 @@ tfm_smishing-detection/
 The data pipeline handles structural normalization, language detection (`langdetect`), privacy preservation (anonymization), and heuristic deduplication (skeleton hashing).
 
 ```bash
-# Standard complete build (Without LLM enrichment)
-python src/dataset/build_metasms.py --no-llm --output data/processed/metasms_hss_master.csv
-
-# Partial build targeting specific thematic sources
-python src/dataset/build_metasms.py --sources "smishing_4c,mimics_3500" --no-llm
+# Standard complete build
+python src/dataset/build_metadataset.py --output data/processed/metasms_hss_master.csv
 
 # Build featuring advanced PII redaction via privacy-filter
-python src/dataset/build_metasms.py --privacy-filter
+python src/dataset/build_metadataset.py --privacy-filter --output data/processed/metasms_hss_master_privacy.csv
+
+# Enrich dataset with LLM metadata and WHOIS features
+python src/dataset/enrich_metadataset.py --input data/processed/metasms_hss_master.csv --output data/processed/metasms_hss_master_enriched.csv
 ```
 
 ### 3.2. Machine Learning Framework (Experimentation)

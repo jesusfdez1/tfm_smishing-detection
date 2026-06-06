@@ -17,25 +17,31 @@ class LLMMetadataAnnotator:
     to a local heuristic when no key is available or requests fail.
     """
     
-    PROMPT_VERSION = "v1.0"
+    PROMPT_VERSION = "v3.0"
     MODEL_NAME = "gemini-2.5-flash"
     
-    # Generic mapping based loosely on standard datasets (0-12)
-    THEMES = {
-        0: "Unknown/Other",
-        1: "Banking/Finance",
-        2: "Delivery/Logistics",
-        3: "Government/Taxes",
-        4: "Telecom/ISP",
-        5: "E-commerce/Retail",
-        6: "Social Media/Accounts",
-        7: "Streaming/Entertainment",
-        8: "Prizes/Lottery",
-        9: "Job Offers",
-        10: "Crypto",
-        11: "Healthcare/Medical",
-        12: "Family Emergency/Scam"
-    }
+    # Taxonomía cerrada de temáticas
+    THEMES = [
+        "personal",
+        "banking",
+        "delivery",
+        "account_security",
+        "promotion",
+        "government",
+        "job_offer",
+        "dating_adult",
+        "subscription",
+        "service_alert",
+        "unknown"
+    ]
+    
+    # Taxonomía cerrada de urgencia
+    URGENCY_LEVELS = [
+        "none",
+        "low",
+        "medium",
+        "high"
+    ]
 
     def __init__(self, use_mock: bool = False, model_name: str | None = None):
         """Initialize the annotator and load API keys from the environment."""
@@ -61,8 +67,7 @@ class LLMMetadataAnnotator:
                     self.api_keys = [single_key] if single_key else []
                 
                 if not self.api_keys:
-                    logger.warning("No GROQ_API_KEY(S) found. LLM enrichment will run in MOCK mode.")
-                    self.use_mock = True
+                    raise ValueError("No GROQ_API_KEY(S) found. Aborting.")
             else:
                 api_keys_env = os.environ.get("GEMINI_API_KEYS")
                 if api_keys_env:
@@ -72,8 +77,7 @@ class LLMMetadataAnnotator:
                     self.api_keys = [single_key] if single_key else []
 
                 if not self.api_keys:
-                    logger.warning("No GEMINI_API_KEY(S) found. LLM enrichment will run in MOCK mode.")
-                    self.use_mock = True
+                    raise ValueError("No GEMINI_API_KEY(S) found. Aborting.")
 
     def _iter_api_keys(self):
         """Yield API keys in a rotating order starting at the current index."""
@@ -87,26 +91,45 @@ class LLMMetadataAnnotator:
 
     def _get_system_prompt(self) -> str:
         """Build the instruction prompt for structured JSON output using Few-Shot + CoT."""
-        themes_str = "\n".join([f"{k}: {v}" for k, v in self.THEMES.items()])
+        themes_str = "\n".join([f"- {t}" for t in self.THEMES])
+        urgency_str = "\n".join([f"- {u}" for u in self.URGENCY_LEVELS])
+        
         return f"""You are an expert cybersecurity analyst annotating SMS messages for a machine learning dataset.
-You will receive a JSON array of text messages. You must return a strict JSON array of objects, one for each input message, in the EXACT SAME ORDER.
+You will receive a JSON array of text messages. The input messages may be in multiple languages (Spanish, English, French, etc.). Analyze the semantic meaning in its native language, but ALWAYS write your "reasoning" and JSON keys in English.
+
+You must return a strict JSON array of objects, one for each input message, in the EXACT SAME ORDER.
 
 For each object, you must include EXACTLY these keys:
-- "reasoning": string, a brief 1-2 sentence explanation of your analysis.
-- "theme": integer from 0 to 12.
-- "urgency_level": integer (0=Low, 1=Medium, 2=High).
-- "label": string, strictly one of "ham" (legitimate), "spam" (marketing), or "smishing" (malicious/scam).
+- "reasoning": string, a brief 1-2 sentence explanation of your analysis in English.
+- "theme": string, strictly one of the themes listed below.
+- "urgency_level": string, strictly one of the urgency levels listed below.
 
-Themes mapping:
-{themes_str}
+Themes mapping (Strictly MECE):
+- personal: Casual conversation, greetings, family matters, or personal questions.
+- banking: Banks, wire transfers, credit/debit cards, crypto, or specific financial alerts.
+- delivery: Packages, post office, customs fees, shipping tracking (e.g. Correos, DHL).
+- account_security: Account locks, suspicious logins, PIN/OTP codes, or identity verification (even if related to a bank, if the focus is the account login/security, use this).
+- promotion: Prizes won, lotteries, discounts, aggressive commercial offers, or gifts.
+- government: Traffic fines (DGT), taxes (Hacienda), public administration notifications.
+- job_offer: Recruitment, job offers, work from home opportunities, easy money scams.
+- dating_adult: Dating, sexual content, "hot singles", adult contacts.
+- subscription: Premium SMS services, horoscopes, ringtones, paid subscriptions.
+- service_alert: Medical appointments, utility bills/outages, mobile carrier service reminders.
+- unknown: Completely unreadable, lacks context, or does not fit anywhere else.
+
+Urgency levels:
+- none: No urgency at all. Normal chat or purely passive information.
+- low: Informative, requires some future action but with absolutely no time pressure.
+- medium: Requires attention soon (e.g., "reply when you can", "your package arrives tomorrow").
+- high: Immediate action required. Heavy psychological pressure, threats of account suspension, fines, or very short time limits (e.g., "Act within 24h or lose your account").
 
 EXAMPLES:
 
 Input: ["Hey mom, can you pick me up at 5?", "OFERTA: 50% de descuento en tus gafas de sol. Compra ya en opticasol.es/baja", "URGENT: Your bank account is suspended. Verify your identity immediately at http://secure-bank-login.com"]
 Output: [
-  {{"reasoning": "Personal communication between family members. No malicious intent or marketing.", "theme": 0, "urgency_level": 0, "label": "ham"}},
-  {{"reasoning": "Marketing message from a commercial entity offering a discount. Not deceptive.", "theme": 5, "urgency_level": 1, "label": "spam"}},
-  {{"reasoning": "High-urgency deceptive message attempting to steal banking credentials via a fake URL.", "theme": 1, "urgency_level": 2, "label": "smishing"}}
+  {{"reasoning": "Personal communication between family members. No malicious intent or marketing.", "theme": "personal", "urgency_level": "none"}},
+  {{"reasoning": "Marketing message from a commercial entity offering a discount. Not deceptive.", "theme": "promotion", "urgency_level": "medium"}},
+  {{"reasoning": "High-urgency deceptive message attempting to steal credentials via a fake URL under the guise of account suspension.", "theme": "account_security", "urgency_level": "high"}}
 ]
 
 Respond ONLY with valid JSON. No markdown, no formatting."""
@@ -117,32 +140,24 @@ Respond ONLY with valid JSON. No markdown, no formatting."""
         This uses simple keyword heuristics and is not intended for production.
         """
         text_lower = text.lower()
-        theme = 0
-        urgency = 0
+        theme = "unknown"
+        urgency = "none"
         
         # Simple heuristics for mock
         if "paquete" in text_lower or "package" in text_lower or "delivery" in text_lower:
-            theme = 2
+            theme = "delivery"
         elif "banco" in text_lower or "bank" in text_lower or "pago" in text_lower or "eur" in text_lower:
-            theme = 1
+            theme = "banking"
             
         if "urgente" in text_lower or "retenido" in text_lower or "bloqueada" in text_lower or "unauthorized" in text_lower:
-            urgency = 2
+            urgency = "high"
         elif "actualice" in text_lower or "verify" in text_lower or "update" in text_lower:
-            urgency = 1
+            urgency = "medium"
             
-        if "urgente" in text_lower or "verify" in text_lower or "bank" in text_lower or "retenido" in text_lower:
-            label = "smishing"
-        elif "buy" in text_lower or "discount" in text_lower or "offer" in text_lower:
-            label = "spam"
-        else:
-            label = "ham"
-
         return {
-            "reasoning": f"Mock heuristic matched label={label} based on keywords.",
+            "reasoning": "Mock heuristic matched based on keywords.",
             "theme": theme,
-            "urgency_level": urgency,
-            "label": label
+            "urgency_level": urgency
         }
 
     def _mock_enrich_batch(self, texts: list[str]) -> list[Dict[str, Any]]:
@@ -163,9 +178,8 @@ Respond ONLY with valid JSON. No markdown, no formatting."""
                 "llm_model": None,
                 "prompt_version": None,
                 "llm_annotation_date": None,
-                "theme": 0,
-                "urgency_level": 0,
-                "label": None,
+                "theme": "unknown",
+                "urgency_level": "none",
                 "reasoning": ""
             }
             
@@ -260,7 +274,7 @@ Respond ONLY with valid JSON. No markdown, no formatting."""
                     continue
 
             if not llm_response_list:
-                llm_response_list = self._mock_enrich_batch(texts)
+                raise RuntimeError("All API attempts exhausted or rate limited. Halting execution to prevent mock data pollution. Please resume later.")
 
         if llm_response_list:
             for i, llm_response in enumerate(llm_response_list):
@@ -272,9 +286,8 @@ Respond ONLY with valid JSON. No markdown, no formatting."""
                     "llm_model": self.model_name if not self.use_mock else f"mock-{self.model_name}",
                     "prompt_version": self.PROMPT_VERSION,
                     "llm_annotation_date": datetime.datetime.now().strftime("%Y-%m-%d"),
-                    "theme": int(llm_response.get("theme", 0)),
-                    "urgency_level": int(llm_response.get("urgency_level", 0)),
-                    "label": llm_response.get("label", "").lower() if llm_response.get("label") else None,
+                    "theme": str(llm_response.get("theme", "unknown")).lower(),
+                    "urgency_level": str(llm_response.get("urgency_level", "none")).lower(),
                     "reasoning": str(llm_response.get("reasoning", ""))
                 })
             
