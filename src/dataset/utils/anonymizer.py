@@ -254,9 +254,11 @@ class SMSAnonymizer:
             for i, output in enumerate(entities_batch):
                 anon_text = processed_texts[i]
                 for entity in sorted(output, key=lambda x: x["start"], reverse=True):
-                    word = entity["word"]
                     label = entity["entity_group"]
-                    anon_text = anon_text[:entity["start"]] + f"<{label}>" + anon_text[entity["end"]:]
+                    normalized = self._normalize_privacy_label(label)
+                    token = self.PRIVACY_LABEL_MAP.get(normalized)
+                    if token:
+                        anon_text = anon_text[:entity["start"]] + token + anon_text[entity["end"]:]
                 anonymized_texts[i] = anon_text
 
         results = []
@@ -282,6 +284,9 @@ class SMSAnonymizer:
             for start, end, replacement in reversed(all_spans):
                 self.stats["replaced"] += 1
                 anon_text = anon_text[:start] + replacement + anon_text[end:]
+
+            # Deduplicate consecutive identical tags (e.g. <URL><URL> or <PHONE> <PHONE>)
+            anon_text = re.sub(r"(<[a-zA-Z0-9_]+>)(?:\s*\1)+", r"\1", anon_text)
 
             if len(all_spans) == 0 and not entities_batch[i]:
                 self.stats["fallback"] += 1
