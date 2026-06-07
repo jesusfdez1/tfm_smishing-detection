@@ -1,5 +1,10 @@
 import re
-from dateutil.parser import parse
+from dateutil.parser import parse, UnknownTimezoneWarning
+import warnings
+
+# Suppress warnings about unparseable timezones (e.g. IST, EST) 
+# since we fallback gracefully and don't want to pollute logs.
+warnings.filterwarnings("ignore", category=UnknownTimezoneWarning)
 from typing import Optional
 
 def normalize_timestamp(ts: Optional[str]) -> str:

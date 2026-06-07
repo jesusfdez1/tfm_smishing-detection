@@ -65,6 +65,36 @@ class DatasetCleaner:
             "obf_punct": 0
         }
 
+    def is_valid_sms(self, text: str) -> bool:
+        """
+        Heuristic to detect if a text is an email, newsletter, or article instead of an SMS.
+        """
+        if not text or not isinstance(text, str):
+            return False
+            
+        # 1. Extremely long text is unlikely to be an SMS (even concatenated)
+        if len(text) > 1600:
+            return False
+            
+        text_lower = text.lower()
+        
+        # 2. Email-specific phrases
+        email_indicators = [
+            "this email was sent",
+            "click here to unsubscribe",
+            "view email in browser",
+            "forwarded message",
+            "to view this email as a web page",
+            "copyright ©",
+            "all rights reserved",
+            "dear hiring professional"
+        ]
+        
+        if any(indicator in text_lower for indicator in email_indicators):
+            return False
+            
+        return True
+
     def clean(self, text: str) -> Dict[str, Any]:
         """
         Clean a single message and return normalized text plus tags.

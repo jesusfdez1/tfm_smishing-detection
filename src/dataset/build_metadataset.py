@@ -63,56 +63,56 @@ MASTER_FIELDS = [
 
 SOURCE_META = {
     "mishra_soni_2022": {
-        "license": "Research Use",
+        "license": "research_use",
         "source_url": "https://doi.org/10.17632/f45bkkt8pr.1",
     },
     "mishra_extended": {
-        "license": "Research Use",
+        "license": "research_use",
         "source_url": "https://doi.org/10.17632/f45bkkt8pr.1",
     },
     "hosseinpour_2025": {
-        "license": "Research Use",
+        "license": "research_use",
         "source_url": "https://doi.org/10.1145/3734477.3736147",
     },
     "agarwal_2025": {
-        "license": "Research Use",
+        "license": "research_use",
         "source_url": "https://doi.org/10.1145/3730567.3764431",
     },
     "uci_sms_spam": {
-        "license": "Research Use",
+        "license": "research_use",
         "source_url": "https://archive.ics.uci.edu/dataset/228/sms+spam+collection",
     },
     "nus_sms": {
-        "license": "Research Use",
+        "license": "research_use",
         "source_url": "https://doi.org/10.1007/s10579-012-9197-9",
     },
     "kaggle_spam_ham": {
-        "license": "Unknown",
+        "license": "unknown",
         "source_url": None,
     },
     "kaggle_phishing": {
-        "license": "Unknown",
+        "license": "unknown",
         "source_url": None,
     },
 
     "exais_sms": {
-        "license": "Research Use",
+        "license": "research_use",
         "source_url": None,
     },
     "spanish_spam_ham": {
-        "license": "Unknown",
+        "license": "unknown",
         "source_url": None,
     },
     "malicious_benign_sms_mms": {
-        "license": "CC BY-NC 4.0",
+        "license": "cc_by_nc_4_0",
         "source_url": None,
     },
     "smishing_4c": {
-        "license": "Research Use",
+        "license": "research_use",
         "source_url": "https://www.kaggle.com/datasets/galactus007/sms-smishing-collection-data-set",
     },
     "mimics_3500": {
-        "license": "Research Use",
+        "license": "research_use",
         "source_url": "https://data.mendeley.com/datasets/f45bkkt8pr/1",
     },
 }
@@ -138,28 +138,26 @@ def clean_str(value: Any) -> Optional[str]:
     return cleaned if cleaned else None
 
 
-def normalize_language(value: Optional[str]) -> Optional[str]:
-    """Resolve a language name or tag to an ISO-639-1 (or -3) code.
-
-    Uses the ``langcodes`` library so any language name recognised by the
-    IANA/BCP-47 registry resolves automatically — no hardcoded lookup table
-    needed.  2-character codes are returned as-is (lowercased).  Unrecognised
-    strings (e.g. 'Mixed (Dutch/French)', 'unknown') return None.
-    """
-    if not value:
+def normalize_language(lang: Optional[str]) -> Optional[str]:
+    """Normalize language name or code to a 2-letter ISO code."""
+    if not lang:
         return None
-    raw = str(value).strip()
-    # Already a valid 2-char code — pass through.
-    if len(raw) == 2:
-        return raw.lower()
+    lang = lang.strip().lower()
+    if len(lang) == 2:
+        return lang
+    
     try:
-        import langcodes
-        tag = langcodes.find(raw)
-        # .language gives the primary language subtag (ISO 639-1 when available,
-        # otherwise ISO 639-3, e.g. 'fil' for Filipino).
-        return tag.language
-    except (LookupError, Exception):
-        return None
+        import pycountry
+        # pycountry.languages.lookup handles fuzzy matching and alternative names
+        language = pycountry.languages.lookup(lang)
+        if hasattr(language, 'alpha_2'):
+            return language.alpha_2
+        if hasattr(language, 'alpha_3'):
+            return language.alpha_3
+    except Exception:
+        pass
+
+    return lang
 
 
 def map_label_basic(value: Optional[str]) -> Optional[str]:
@@ -319,60 +317,88 @@ def save_resume_state(state_path: Path, state: Dict[str, Any]) -> None:
             time.sleep(0.5)
 
 
-def detect_language(text: str, hint: Optional[str]) -> Dict[str, Any]:
-    """Detect language using local libraries with a hint fallback."""
-    if not text or len(text.strip()) < 4:
-        if hint:
-            return {"language": hint, "language_confidence": 1.0}
-        return {"language": "unknown", "language_confidence": 0.0}
+_FASTTEXT_MODEL = None
 
-    detected = None
-    confidence = 0.0
-
-    try:
-        import pycld3
-
-        result = pycld3.get_language(text)
-        if result and result.language:
-            detected = result.language[:2].lower()
-            confidence = float(result.probability)
-    except Exception:
-        pass
-
-    if not detected:
+def get_fasttext_model():
+    """Lazy instantiation of Meta's FastText language detection model."""
+    global _FASTTEXT_MODEL
+    if _FASTTEXT_MODEL is None:
         try:
-            import langid
-
-            detected, score = langid.classify(text)
-            detected = detected[:2].lower()
-            # langid score is not a true probability, but we normalize it loosely or just use 1.0
-            confidence = 1.0
-        except Exception:
-            pass
-
-    if not detected:
-        try:
-            from langdetect import detect_langs, DetectorFactory
-            DetectorFactory.seed = 0  # Make deterministic
+            import fasttext
+            import urllib.request
+            import os
             
-            candidates = detect_langs(text)
-            if candidates:
-                detected = candidates[0].lang[:2].lower()
-                confidence = float(candidates[0].prob)
-        except Exception:
-            pass
+            # fasttext needs a model file. We use the compressed 126MB lid.176.bin model
+            model_path = os.path.join(os.path.dirname(__file__), "lid.176.bin")
+            
+            # Look for the model in the root project directory if not found in dataset dir
+            root_model_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "lid.176.bin")
+            if not os.path.exists(model_path) and os.path.exists(root_model_path):
+                model_path = root_model_path
+                
+            if not os.path.exists(model_path):
+                print("Descargando modelo FastText de Meta (lid.176.bin)...")
+                urllib.request.urlretrieve(
+                    "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin", 
+                    model_path
+                )
+                print("Descarga completada.")
+            
+            # Workaround for FastText C++ core failing with non-ASCII paths on Windows (like 'Ámbito académico')
+            try:
+                safe_model_path = os.path.relpath(model_path)
+            except ValueError:
+                safe_model_path = model_path
 
-    if not detected:
-        if hint:
-            return {"language": hint, "language_confidence": 1.0}
+            # Disable the fasttext warning about predict
+            fasttext.FastText.eprint = lambda x: None
+            _FASTTEXT_MODEL = fasttext.load_model(safe_model_path)
+            
+        except ImportError:
+            raise ImportError("Missing 'fasttext'. Install it with 'pip install fasttext-wheel'.")
+        except Exception as e:
+            print(f"Error loading FastText model: {e}")
+            return None
+    return _FASTTEXT_MODEL
+
+def detect_language(text: str) -> Dict[str, Any]:
+    """Detect language using Meta's FastText Neural Network."""
+    if not text or len(text.strip()) < 2:
         return {"language": "unknown", "language_confidence": 0.0}
 
-    # If the text is short or detection confidence is low, trust the dataset hint
-    if hint and (confidence < 0.95 or len(text.strip()) < 60):
-        detected = hint
-        confidence = 1.0
+    model = get_fasttext_model()
+    if model:
+        # FastText expects single lines without newlines
+        clean_text = text.replace("\n", " ").strip()
+        
+        if clean_text:
+            try:
+                # Use model.f.predict (pybind wrapper) directly to bypass numpy 2.0 incompatibility
+                # in python wrapper which uses `np.array(copy=False)` causing ValueError.
+                predictions = model.f.predict(clean_text, 1, 0.0, '')
+                # predictions is a list of tuples: [(0.99, '__label__en')]
+                if predictions:
+                    confidence = float(predictions[0][0])
+                    label = predictions[0][1]
+                    
+                    # Fallback for ALL CAPS or noisy SMS: if confidence is low, try lowercase
+                    if confidence < 0.5 and not clean_text.islower():
+                        predictions_lower = model.f.predict(clean_text.lower(), 1, 0.0, '')
+                        if predictions_lower:
+                            conf_lower = float(predictions_lower[0][0])
+                            if conf_lower > confidence:
+                                confidence = conf_lower
+                                label = predictions_lower[0][1]
+                    
+                    # Extract language code (e.g. '__label__en' -> 'en')
+                    lang_code = label.replace("__label__", "").lower()
+                    
+                    return {"language": lang_code, "language_confidence": confidence}
+            except Exception as e:
+                print(f"FastText prediction error: {e}")
+                pass
 
-    return {"language": detected, "language_confidence": confidence}
+    return {"language": "unknown", "language_confidence": 0.0}
 
 
 def build_master_rows(
@@ -422,7 +448,7 @@ def build_master_rows(
 
         canonical_label = raw.get("canonical_label")
 
-        language_data = detect_language(llm_text, raw.get("language_hint"))
+        language_data = detect_language(llm_text)
         language = language_data.get("language", "unknown")
         language_confidence = language_data.get("language_confidence", 0.0)
 
@@ -445,11 +471,11 @@ def build_master_rows(
             "anonymization_status": anonymization_status,
             "canonical_label": canonical_label or "",
             "timestamp_original": normalize_timestamp(raw.get("timestamp_original")),
-            "reference": raw.get("source") or "unknown",
-            "source_id": raw.get("source_id") or "",
-            "original_label": original_label,
-            "label_mapping_rule": label_mapping_rule,
-            "license": raw.get("license") or "",
+            "reference": str(raw.get("source") or "unknown").lower().strip(),
+            "source_id": str(raw.get("source_id") or "").strip(),
+            "original_label": str(original_label).strip() if original_label else "",
+            "label_mapping_rule": str(label_mapping_rule).lower().strip() if label_mapping_rule else "",
+            "license": str(raw.get("license") or "unknown").lower().strip(),
             "language": language,
             "language_confidence": f"{language_confidence:.2f}" if language_confidence else "",
             "llm_model": "",
@@ -468,13 +494,7 @@ def build_master_rows(
     return results
 
 
-def build_master_row(
-    raw: Dict[str, Any],
-    cleaner: DatasetCleaner,
-    anonymizer: SMSAnonymizer,
-) -> Optional[Tuple[Dict[str, Any], str]]:
-    """Convenience wrapper for single row."""
-    return build_master_rows([raw], cleaner, anonymizer)[0]
+
 
 
 def load_mishra(path: Path, source_name: str, chunk_size: int) -> Iterable[Dict[str, Any]]:
@@ -1016,6 +1036,9 @@ def build_metasms_dataset(
                 if exclude_ai_generated and raw.get("is_ai_generated"):
                     continue
 
+                if not cleaner.is_valid_sms(raw.get("text", "")):
+                    continue
+
                 batch_raws.append(raw)
 
                 if len(batch_raws) >= 128:
@@ -1038,6 +1061,7 @@ def build_metasms_dataset(
 
                     # Periodic checkpoints allow safe resume after interruptions.
                     if checkpoint_every and source_seen % checkpoint_every < 128:
+                        logger.info("Checkpointing state for %s", source_name)
                         state["version"] = 1
                         state["options"] = signature
                         state["sources"][source_name] = {"seen": source_seen, "written": source_count}

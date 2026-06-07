@@ -65,4 +65,4 @@ class WhoisEnricher:
             return result
         except Exception as e:
             logger.debug(f"Error extracting WHOIS for {url}: {e}")
-            return None
+            return {"error": str(e)}

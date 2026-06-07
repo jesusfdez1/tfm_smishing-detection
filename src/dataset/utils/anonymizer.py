@@ -143,69 +143,6 @@ class SMSAnonymizer:
             cleaned = cleaned[2:]
         return cleaned
 
-    def _process_with_privacy_filter(self, text: str) -> Dict[str, Any]:
-        """Mask PII spans using the privacy-filter model output.
-
-        Returns a dict with original text, anonymized text, and extracted entities.
-        """
-        if not self._privacy_pipe:
-            return self.process_message(text)
-
-        self.stats["total"] += 1
-        try:
-            output = self._privacy_pipe(text)
-        except Exception as e:
-            logger.warning("Privacy pipe failed for text (len=%d), falling back to regex: %s", len(text), e)
-            self.stats["fallback"] += 1
-            # Temporarily disable pipe to prevent infinite recursion and run regex fallback
-            pipe_backup = self._privacy_pipe
-            self._privacy_pipe = None
-            result = self.process_message(text)
-            self._privacy_pipe = pipe_backup
-            return result
-
-        # Collect replacement spans based on the model output.
-        spans: List[Tuple[int, int, str, str]] = []
-        for ent in output:
-            start = ent.get("start")
-            end = ent.get("end")
-            label = ent.get("entity_group") or ent.get("entity")
-            if start is None or end is None or not label:
-                continue
-            normalized = self._normalize_privacy_label(label)
-            token = self.PRIVACY_LABEL_MAP.get(normalized)
-            if not token:
-                continue
-            spans.append((int(start), int(end), token, normalized))
-
-        if not spans:
-            self.stats["fallback"] += 1
-            return {"original": text, "anonymized": text}
-
-        spans.sort(key=lambda x: x[0])
-        
-        # Merge overlapping or adjacent spans of the same token type
-        merged_spans = []
-        for start, end, token, normalized in spans:
-            if not merged_spans:
-                merged_spans.append([start, end, token, normalized])
-            else:
-                last_start, last_end, last_token, last_normalized = merged_spans[-1]
-                # If they overlap, or are adjacent (only separated by whitespace) and have the same token
-                if start <= last_end:
-                    # Overlap: merge them
-                    merged_spans[-1][1] = max(last_end, end)
-                elif text[last_end:start].strip() == "" and token == last_token:
-                    # Adjacent with same token: merge them
-                    merged_spans[-1][1] = end
-                else:
-                    merged_spans.append([start, end, token, normalized])
-
-        anonymized_text = text
-        return {
-            "original": text,
-            "anonymized": anonymized_text,
-        }
 
     def _decode_urls(self, text: str) -> str:
         """Decode percent-encoded URLs before pattern matching.
@@ -245,56 +182,65 @@ class SMSAnonymizer:
             text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
             processed_texts.append(text)
 
-        anonymized_texts = list(processed_texts)
         entities_batch = [[] for _ in texts]
 
         if self.use_privacy_filter and self._privacy_pipe:
             entities_batch = self._process_with_privacy_filter_batch(processed_texts)
-            # Reemplazar tokens usando el modelo de IA
-            for i, output in enumerate(entities_batch):
-                anon_text = processed_texts[i]
-                for entity in sorted(output, key=lambda x: x["start"], reverse=True):
-                    label = entity["entity_group"]
-                    normalized = self._normalize_privacy_label(label)
-                    token = self.PRIVACY_LABEL_MAP.get(normalized)
-                    if token:
-                        anon_text = anon_text[:entity["start"]] + token + anon_text[entity["end"]:]
-                anonymized_texts[i] = anon_text
 
         results = []
         for i, text in enumerate(processed_texts):
             self.stats["total"] += 1
-            anon_text = anonymized_texts[i]
-
-            # Collect all match spans from all patterns, then apply once in reverse
-            all_spans: List[Tuple[int, int, str]] = []
-            seen_spans: set = set()
-
+            
+            all_spans: List[Tuple[int, int, str, int]] = []
+            
+            # 1. Collect regex spans on the ORIGINAL text (Priority 1)
             for pattern, replacement, *flags in self.patterns:
                 flag = flags[0] if flags else 0
-                for match in re.finditer(pattern, anon_text, flag):
+                for match in re.finditer(pattern, text, flag):
                     start, end = match.start(1), match.end(1)
-                    if any(s < end and start < e for s, e, _ in seen_spans):
-                        continue
-                    all_spans.append((start, end, replacement))
-                    seen_spans.add((start, end, replacement))
+                    all_spans.append((start, end, replacement, 1))
+                    
+            # 2. Collect AI spans (Priority 0)
+            if self.use_privacy_filter and self._privacy_pipe:
+                ai_output = entities_batch[i]
+                for entity in ai_output:
+                    label = entity["entity_group"]
+                    normalized = self._normalize_privacy_label(label)
+                    token = self.PRIVACY_LABEL_MAP.get(normalized)
+                    if token:
+                        all_spans.append((entity["start"], entity["end"], token, 0))
 
-            all_spans.sort(key=lambda x: x[0])
-
-            for start, end, replacement in reversed(all_spans):
+            # 3. Resolve overlaps: prioritize Regex (priority 1) over AI (priority 0), then longest span
+            all_spans.sort(key=lambda x: (x[3], (x[1] - x[0]), -x[0]), reverse=True)
+            
+            final_spans = []
+            for start, end, replacement, priority in all_spans:
+                overlap = False
+                for s, e, _, _ in final_spans:
+                    if max(start, s) < min(end, e):
+                        overlap = True
+                        break
+                if not overlap:
+                    final_spans.append((start, end, replacement, priority))
+                    
+            # 4. Apply replacements from right to left
+            final_spans.sort(key=lambda x: x[0], reverse=True)
+            
+            anon_text = text
+            for start, end, replacement, priority in final_spans:
                 self.stats["replaced"] += 1
                 anon_text = anon_text[:start] + replacement + anon_text[end:]
 
             # Deduplicate consecutive identical tags (e.g. <URL><URL> or <PHONE> <PHONE>)
             anon_text = re.sub(r"(<[a-zA-Z0-9_]+>)(?:\s*\1)+", r"\1", anon_text)
 
-            if len(all_spans) == 0 and not entities_batch[i]:
+            if len(final_spans) == 0:
                 self.stats["fallback"] += 1
 
             results.append({
                 "original": text,
                 "anonymized": anon_text,
-                "entities": entities_batch[i]
+                "entities": entities_batch[i] if (self.use_privacy_filter and self._privacy_pipe) else []
             })
 
         return results
@@ -318,7 +264,7 @@ class SMSAnonymizer:
         }
 
 if __name__ == "__main__":
-    extractor = SMSAnonymizer(use_whois=False)
+    extractor = SMSAnonymizer(use_privacy_filter=False)
     
     sample_texts = [
         "Notice: Your package 1Z9999999999999999 could not be delivered. Update at http://x.co/ab3x",

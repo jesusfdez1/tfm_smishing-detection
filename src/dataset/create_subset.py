@@ -82,18 +82,21 @@ def main():
     if args.sample and args.sample < len(df):
         print(f"Stratified sampling to {args.sample} rows...")
         try:
+            original_df = df
             # Intentamos muestreo estratificado usando groupby
-            df = df.groupby("canonical_label", group_keys=False).apply(
-                lambda x: x.sample(n=min(len(x), int(args.sample * len(x) / len(df))), random_state=args.seed)
+            df = original_df.groupby("canonical_label", group_keys=False).apply(
+                lambda x: x.sample(n=min(len(x), int(args.sample * len(x) / len(original_df))), random_state=args.seed)
             )
             # Si el redondeo nos deja con menos filas, rellenamos con una muestra aleatoria del sobrante
             shortfall = args.sample - len(df)
             if shortfall > 0:
-                remaining = df[~df.index.isin(df.index)].sample(n=shortfall, random_state=args.seed)
+                remaining = original_df[~original_df.index.isin(df.index)].sample(n=shortfall, random_state=args.seed)
                 df = pd.concat([df, remaining])
         except Exception as e:
             print("Stratified sampling failed (maybe missing classes), falling back to random sampling.")
-            df = df.sample(n=args.sample, random_state=args.seed)
+            # If original_df exists in locals, use it to fallback, otherwise use df.
+            fallback_df = locals().get('original_df', df)
+            df = fallback_df.sample(n=args.sample, random_state=args.seed)
             
         print(f"Sampled exactly {len(df)} rows.")
 

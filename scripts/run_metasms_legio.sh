@@ -7,6 +7,7 @@
 #SBATCH --mem=32G
 #SBATCH --partition=computo
 #SBATCH --gres=gpu:1
+#SBATCH --exclusive
 
 # Nos movemos a la carpeta del proyecto en tu HOME
 cd $HOME/tfm_smishing-detection
