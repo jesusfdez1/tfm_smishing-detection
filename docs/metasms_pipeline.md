@@ -31,8 +31,9 @@ The pipeline applies the following steps in order:
    - For unlabeled rows, optional LLM labeling can be enabled.
 
 3. Language detection
-   - Uses specialized libraries (pycld3, langdetect, langid).
-   - Falls back to dataset hints if the detector cannot decide.
+   - Uses Meta's FastText neural network model (`lid.176.bin`) to infer language at high speed.
+   - Retries using lowercase text in case of noisy/ALL-CAPS SMS messages.
+   - Maps language codes to ISO 639-1 using `pycountry`.
 
 4. LLM enrichment y Whois (Opcional - Fase 2)
    - Realizado por `enrich_metadataset.py`.
@@ -80,7 +81,7 @@ python src/dataset/build_metadataset.py --no-dedupe
 
 **Fase 2: Enriquecimiento con LLM y Whois**
 ```bash
-python src/dataset/enrich_metadataset.py --input data/processed/metasms_v1.csv --output data/processed/metasms_v1_enriched.csv --model gemini-2.5-flash
+python src/dataset/enrich_metadataset.py --input data/processed/metasms_v1.csv --output data/processed/metasms_v1_enriched.csv --model Qwen/Qwen3.6-35B-A3B-FP8
 ```
 
 ## Output naming

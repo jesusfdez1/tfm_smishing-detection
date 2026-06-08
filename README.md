@@ -8,26 +8,27 @@ This repository contains the complete experimental framework and data engineerin
 
 > 📖 **Diccionario de Datos:** Para ver la explicación detallada de cada columna del CSV, así como la taxonomía de intenciones (`theme`), niveles de urgencia e idiomas ISO, consulta el **[Diccionario de Datos (Biblia)](docs/data_dictionary.md)**.
 
-The meta-dataset is dynamically aggregated from **14 independent, heterogeneous sources**, specifically curated to balance classes and maximize lexical diversity while strictly excluding standard emails to ensure domain fidelity:
+The meta-dataset is dynamically aggregated from **13 independent, heterogeneous sources** via `build_metadataset.py`, specifically curated to balance classes and maximize lexical diversity while strictly excluding standard emails to ensure domain fidelity:
 
 | # | Dataset | Samples | Classes | Format | Original Source |
 |---|---------|----------|--------|---------|--------|
 | 1 | ExAIS SMS Spam | 5,240 | 2 (Spam, Ham) | CSV | Onashoga et al. (2015) |
-| 2 | SmishTank | ~10,000+ | 1 (Smishing) | JSONL | [smishtank.com](https://smishtank.com/) |
-| 3 | Mishra & Soni 2022 | 5,971 | 3 (Ham, Spam, Smishing) | CSV | [Mendeley](https://doi.org/10.17632/f45bkkt8pr.1) |
-| 4 | Mishra Extended | 10,191 | 3 (Ham, Spam, Smishing) | CSV | [Mendeley](https://doi.org/10.17632/f45bkkt8pr.1) |
-| 5 | Hosseinpour 2025 | — | 3 (Ham, Spam, Smishing) | CSV | [ACM DL](https://doi.org/10.1145/3734477.3736147) |
-| 6 | Agarwal IMC 2025 | — | 1 (Smishing) | CSV | [ACM DL](https://doi.org/10.1145/3730567.3764431) |
-| 7 | UCI SMS Spam | 5,574 | 2 (Ham, Spam) | TSV | [UCI](https://archive.ics.uci.edu/dataset/228/sms+spam+collection) |
-| 8 | NUS SMS Corpus | ~67,000 | 1 (Ham) | JSON | [DOI](https://doi.org/10.1007/s10579-012-9197-9) |
-| 9 | Kaggle Spam/Ham | ~10,800 | 2 (Spam, Ham) | CSV | Kaggle |
-| 10 | Kaggle Phishing | 1,001 | 1 (Smishing) | CSV | Kaggle |
-| 11 | Malicious-Benign SMS/MMS | ~383,000 (Non-AI) | 2 (Benign, Spam) | CSV | [HuggingFace](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset) |
-| 12 | Spanish Spam/Ham | 1,209 | 2 (Spam, Ham) | CSV | HuggingFace |
-| 13 | Smishing-4C | 120 | 4 Thematic Cats. | CSV | Kaggle / Mendeley |
-| 14 | MIMICS-3500 | 3,500 | 7 / 13 Classes | CSV | Multiple Sources |
+| 2 | Mishra & Soni 2022 | 5,971 | 3 (Ham, Spam, Smishing) | CSV | [Mendeley](https://doi.org/10.17632/f45bkkt8pr.1) |
+| 3 | Mishra Extended | 10,191 | 3 (Ham, Spam, Smishing) | CSV | [Mendeley](https://doi.org/10.17632/f45bkkt8pr.1) |
+| 4 | Hosseinpour 2025 | — | 3 (Ham, Spam, Smishing) | CSV | [ACM DL](https://doi.org/10.1145/3734477.3736147) |
+| 5 | Agarwal IMC 2025 | — | 1 (Smishing) | CSV | [ACM DL](https://doi.org/10.1145/3730567.3764431) |
+| 6 | UCI SMS Spam | 5,574 | 2 (Ham, Spam) | TSV | [UCI](https://archive.ics.uci.edu/dataset/228/sms+spam+collection) |
+| 7 | NUS SMS Corpus | ~67,000 | 1 (Ham) | JSON | [DOI](https://doi.org/10.1007/s10579-012-9197-9) |
+| 8 | Kaggle Spam/Ham | ~10,800 | 2 (Spam, Ham) | CSV | Kaggle |
+| 9 | Kaggle Phishing | 1,001 | 1 (Smishing) | CSV | Kaggle |
+| 10 | Malicious-Benign SMS/MMS | ~383,000 (Non-AI) | 2 (Benign, Spam) | CSV | [HuggingFace](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset) |
+| 11 | Spanish Spam/Ham | 1,209 | 2 (Spam, Ham) | CSV | HuggingFace |
+| 12 | Smishing-4C | 120 | 4 Thematic Cats. | CSV | Kaggle / Mendeley |
+| 13 | MIMICS-3500 | 3,500 | 7 / 13 Classes | CSV | Multiple Sources |
 
-> ℹ️ **Note on Dataset #11:** The *Malicious-Benign SMS/MMS* dataset is sourced from HuggingFace at [https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset). Only `dataset_v3_undersampled_stratified_full.csv` is required for building the MetaSMS dataset. All LLM-generated synthetic data has been strictly excluded from this pipeline to maintain data purity and avoid synthetic bias.
+> ℹ️ **Note on SmishTank:** The SmishTank dataset is processed via a separate, standalone pipeline (`src/dataset/build_smishtank_standalone.py`) to preserve its specific community verification scores and metadata.
+>
+> ℹ️ **Note on Dataset #10:** The *Malicious-Benign SMS/MMS* dataset is sourced from HuggingFace at [https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset). Only `dataset_v3_undersampled_stratified_full.csv` is required for building the MetaSMS dataset. All LLM-generated synthetic data has been strictly excluded from this pipeline to maintain data purity and avoid synthetic bias.
 
 ## 2. Architectural Structure
 
@@ -60,7 +61,7 @@ tfm_smishing-detection/
 
 ### 3.1. Data Engineering (Dataset Construction)
 
-The data pipeline handles structural normalization, language detection (`langdetect`), privacy preservation (anonymization), and heuristic deduplication (skeleton hashing).
+The data pipeline handles structural normalization, language detection (Meta's FastText network), privacy preservation (anonymization), and heuristic deduplication (SHA-256 hash matching).
 
 ```bash
 # Standard complete build
@@ -98,7 +99,7 @@ Ensure you are operating within a virtual environment before installing the proj
 ```bash
 pip install -r requirements.txt
 ```
-*Note: Language detection relies on `langdetect`, which must be installed in the environment.*
+*Note: Language detection relies on Meta's FastText (via `fasttext-wheel`), which automatically retrieves `lid.176.bin` upon first execution.*
 
 ## 5. License & Academic Integrity
 

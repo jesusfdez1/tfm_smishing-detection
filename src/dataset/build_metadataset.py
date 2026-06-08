@@ -31,6 +31,7 @@ MASTER_FIELDS = [
     # 1. Core Data (Target & Features)
     "message_id",
     "canonical_label",
+    "text_raw",
     "text_anonymized",
     "text",
     
@@ -45,6 +46,7 @@ MASTER_FIELDS = [
     # 3. Processing Metadata
     "language",
     "language_confidence",
+    "obfuscation_tags",
     "anonymization_status",
     
     # 4. LLM Enrichment (Phase 2)
@@ -337,12 +339,12 @@ def get_fasttext_model():
                 model_path = root_model_path
                 
             if not os.path.exists(model_path):
-                print("Descargando modelo FastText de Meta (lid.176.bin)...")
+                print("Downloading Meta FastText model (lid.176.bin)...")
                 urllib.request.urlretrieve(
                     "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin", 
                     model_path
                 )
-                print("Descarga completada.")
+                print("Download completed.")
             
             # Workaround for FastText C++ core failing with non-ASCII paths on Windows (like 'Ámbito académico')
             try:
@@ -423,9 +425,13 @@ def build_master_rows(
 
     # 2. Clean texts
     cleaned_texts = []
+    raw_texts = []
+    obf_tags = []
     for text in texts_to_clean:
         cleaner_result = cleaner.clean(text)
-        cleaned_texts.append(cleaner_result.get("cleaned", text))
+        cleaned_texts.append(cleaner_result.get("text_normalized", text))
+        raw_texts.append(cleaner_result.get("text_raw", text))
+        obf_tags.append(cleaner_result.get("tags", []))
 
     # 3. Batched anonymization
     anon_results = anonymizer.process_messages(cleaned_texts)
@@ -433,15 +439,16 @@ def build_master_rows(
     # 4. Build final rows
     for i, idx in enumerate(valid_indices):
         raw = raws[idx]
-        text = texts_to_clean[i]
+        text_raw = raw_texts[i]
         cleaned_text = cleaned_texts[i]
+        tags = obf_tags[i]
         anon_result = anon_results[i]
 
         llm_text = anon_result.get("anonymized", cleaned_text)
 
-        if detect_pre_anonymized(text):
+        if detect_pre_anonymized(text_raw):
             anonymization_status = "pre_anonymized"
-        elif llm_text != text:
+        elif llm_text != cleaned_text:
             anonymization_status = "anonymized"
         else:
             anonymization_status = "raw"
@@ -466,18 +473,20 @@ def build_master_rows(
 
         row = {
             "message_id": f"msg_{uuid.uuid4().hex[:12]}",
-            "text": text,
-            "text_anonymized": llm_text,
-            "anonymization_status": anonymization_status,
             "canonical_label": canonical_label or "",
-            "timestamp_original": normalize_timestamp(raw.get("timestamp_original")),
+            "text_raw": text_raw,
+            "text_anonymized": llm_text,
+            "text": cleaned_text,
             "reference": str(raw.get("source") or "unknown").lower().strip(),
             "source_id": str(raw.get("source_id") or "").strip(),
             "original_label": str(original_label).strip() if original_label else "",
             "label_mapping_rule": str(label_mapping_rule).lower().strip() if label_mapping_rule else "",
+            "timestamp_original": normalize_timestamp(raw.get("timestamp_original")),
             "license": str(raw.get("license") or "unknown").lower().strip(),
             "language": language,
             "language_confidence": f"{language_confidence:.2f}" if language_confidence else "",
+            "obfuscation_tags": ",".join(tags) if tags else "",
+            "anonymization_status": anonymization_status,
             "llm_model": "",
             "prompt_version": "",
             "llm_annotation_date": "",

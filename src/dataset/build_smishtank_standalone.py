@@ -46,7 +46,7 @@ def load_smish(path: Path) -> Iterable[Dict[str, Any]]:
             source_id = clean_str(smish.get("messageID") or payload.get("message_id"))
             source_url = clean_str(smish.get("url"))
             
-            # Comprobar si la comunidad lo ha verificado
+            # Check if the community has verified it
             upvotes = int(smish.get("upvotes") or 0)
             downvotes = int(smish.get("downvotes") or 0)
 

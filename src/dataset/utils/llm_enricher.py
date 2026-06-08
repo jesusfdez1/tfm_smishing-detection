@@ -16,7 +16,7 @@ class LLMMetadataAnnotator:
     """
     
     PROMPT_VERSION = "v2.0-local-7b"
-    MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
+    MODEL_NAME = "Qwen/Qwen3.6-35B-A3B-FP8"
     
     # Taxonomía cerrada de temáticas
     THEMES = [
@@ -247,5 +247,5 @@ Respond ONLY with valid JSON. No markdown wrappers, no formatting, just the raw 
 if __name__ == "__main__":
     # Test script in mock mode
     annotator = LLMMetadataAnnotator(use_mock=True)
-    res = annotator.annotate("Correos: Su paquete esta retenido. Pague aduanas en <URL_HTTPS>")
+    res = annotator.annotate("Post: Your package is held. Pay customs at <URL_HTTPS>")
     print(json.dumps(res, indent=2))

@@ -15,21 +15,21 @@ LABEL_MAP = {"ham": 0, "spam": 1, "smishing": 2}
 REVERSE_LABEL_MAP = {0: "ham", 1: "spam", 2: "smishing"}
 
 def plot_confusion_matrix(cm, labels, output_path):
-    """Genera y guarda un mapa de calor de la matriz de confusión."""
+    """Generate and save a heatmap of the confusion matrix."""
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=labels, yticklabels=labels)
-    plt.ylabel('Etiqueta Real')
-    plt.xlabel('Predicción del Modelo')
-    plt.title('Matriz de Confusión')
+    plt.ylabel('True Label')
+    plt.xlabel('Model Prediction')
+    plt.title('Confusion Matrix')
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
     logger.info(f"Saved confusion matrix plot to {output_path}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Evalúa un modelo preentrenado (TFM)")
-    parser.add_argument("--model-path", type=str, required=True, help="Ruta al archivo .pkl del modelo")
-    parser.add_argument("--test-data", type=str, required=True, help="Dataset CSV de evaluación")
+    parser = argparse.ArgumentParser(description="Evaluate a pre-trained model (project)")
+    parser.add_argument("--model-path", type=str, required=True, help="Path to the model's .pkl file")
+    parser.add_argument("--test-data", type=str, required=True, help="Evaluation CSV dataset")
     parser.add_argument("--text-col", type=str, choices=["text", "text_anonymized"], required=True)
     parser.add_argument("--output-dir", type=str, default="experiments/results/logs")
     
@@ -53,7 +53,7 @@ def main():
     if vectorizer:
         X_test_vec = vectorizer.transform(X_test)
     else:
-        # TODO: Lógica para cargar tokenizers de HuggingFace si el modelo es DeBERTa
+        # TODO: Logic to load HuggingFace tokenizers if the model is DeBERTa
         raise NotImplementedError("Only TF-IDF models are fully implemented in this baseline script.")
         
     logger.info("Predicting...")

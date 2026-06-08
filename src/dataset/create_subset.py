@@ -8,24 +8,24 @@ def main():
     parser.add_argument("--input", type=str, default="data/processed/metasms_hss_master.csv", help="Path to the master CSV dataset.")
     parser.add_argument("--output", type=str, required=True, help="Path to save the customized subset CSV.")
     
-    # Filtros de datos
+    # Data filters
     parser.add_argument("--labels", type=str, nargs="+", choices=["spam", "ham", "smishing"], help="Filter by specific labels (e.g., --labels spam smishing).")
     parser.add_argument("--languages", type=str, nargs="+", help="Filter by languages (e.g., --languages en es).")
     parser.add_argument("--sources", type=str, nargs="+", help="Filter by specific sources.")
     
-    # Filtros IA
+    # AI filters
     parser.add_argument("--exclude-ai", action="store_true", help="Remove all AI-generated messages.")
     parser.add_argument("--only-ai", action="store_true", help="Keep ONLY AI-generated messages.")
     
-    # Filtros de longitud
+    # Length filters
     parser.add_argument("--min-length", type=int, help="Minimum character length of the message.")
     parser.add_argument("--max-length", type=int, help="Maximum character length of the message.")
     
-    # Muestreo (Sampling)
+    # Sampling
     parser.add_argument("--sample", type=int, help="Randomly sample exactly N rows. It maintains the class proportion (stratified) if possible.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
     
-    # Columnas
+    # Columns
     parser.add_argument("--keep-cols", type=str, nargs="+", help="Specific columns to keep. Example: --keep-cols text_anonymized canonical_label")
 
     args = parser.parse_args()
@@ -36,7 +36,7 @@ def main():
         sys.exit(1)
 
     print(f"Loading master dataset: {input_path}...")
-    # Leemos todo como string para evitar problemas de tipos, excepto is_ai_generated que nos viene bien como int
+    # Read everything as string to avoid type issues, except is_ai_generated which is useful as int
     df = pd.read_csv(input_path, dtype=str)
     
     if "is_ai_generated" in df.columns:
@@ -45,22 +45,22 @@ def main():
     initial_len = len(df)
     print(f"Loaded {initial_len} rows.")
 
-    # 1. Filtrar Etiquetas
+    # 1. Filter Labels
     if args.labels:
         df = df[df["canonical_label"].isin(args.labels)]
         print(f"Filtered by labels {args.labels}. Remaining: {len(df)}")
 
-    # 2. Filtrar Idioma
+    # 2. Filter Languages
     if args.languages:
         df = df[df["language"].isin(args.languages)]
         print(f"Filtered by languages {args.languages}. Remaining: {len(df)}")
 
-    # 3. Filtrar Fuente
+    # 3. Filter Sources
     if args.sources:
         df = df[df["source"].isin(args.sources)]
         print(f"Filtered by sources {args.sources}. Remaining: {len(df)}")
 
-    # 4. Filtrar IA
+    # 4. Filter AI
     if args.exclude_ai:
         df = df[df.get("is_ai_generated", 0) == 0]
         print(f"Excluded AI generated. Remaining: {len(df)}")
@@ -68,7 +68,7 @@ def main():
         df = df[df.get("is_ai_generated", 0) == 1]
         print(f"Kept ONLY AI generated. Remaining: {len(df)}")
 
-    # 5. Filtrar Longitud
+    # 5. Filter Length
     if args.min_length or args.max_length:
         text_len = df["text"].fillna("").str.len()
         if args.min_length:
@@ -78,16 +78,16 @@ def main():
             df = df[text_len <= args.max_length]
             print(f"Applied max_length <= {args.max_length}. Remaining: {len(df)}")
 
-    # 6. Muestreo Estratificado (Sampling)
+    # 6. Stratified Sampling
     if args.sample and args.sample < len(df):
         print(f"Stratified sampling to {args.sample} rows...")
         try:
             original_df = df
-            # Intentamos muestreo estratificado usando groupby
+            # Attempt stratified sampling using groupby
             df = original_df.groupby("canonical_label", group_keys=False).apply(
                 lambda x: x.sample(n=min(len(x), int(args.sample * len(x) / len(original_df))), random_state=args.seed)
             )
-            # Si el redondeo nos deja con menos filas, rellenamos con una muestra aleatoria del sobrante
+            # If rounding leaves us with fewer rows, fill with a random sample of the remainder
             shortfall = args.sample - len(df)
             if shortfall > 0:
                 remaining = original_df[~original_df.index.isin(df.index)].sample(n=shortfall, random_state=args.seed)
@@ -100,7 +100,7 @@ def main():
             
         print(f"Sampled exactly {len(df)} rows.")
 
-    # 7. Selección de columnas
+    # 7. Column Selection
     if args.keep_cols:
         missing_cols = [c for c in args.keep_cols if c not in df.columns]
         if missing_cols:
@@ -109,7 +109,7 @@ def main():
         df = df[valid_cols]
         print(f"Kept columns: {valid_cols}")
 
-    # Guardar
+    # Save
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False, encoding="utf-8")

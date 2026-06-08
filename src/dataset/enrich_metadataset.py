@@ -271,7 +271,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Enrich MetaSMS-HSS dataset using LLM")
     parser.add_argument("--input", type=str, required=True, help="Path to input unlabeled CSV")
     parser.add_argument("--output", type=str, required=True, help="Path to save enriched output CSV")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-7B-Instruct", help="Local Hugging Face model name to use.")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen3.6-35B-A3B-FP8", help="Local Hugging Face model name to use.")
     parser.add_argument("--batch-size", type=int, default=15, help="Number of rows to process in one LLM call")
     parser.add_argument("--resume", action="store_true", help="Resume from previous partial run by skipping already processed rows in output CSV")
     

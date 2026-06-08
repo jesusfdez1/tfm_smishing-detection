@@ -16,19 +16,19 @@ from sklearn.model_selection import train_test_split
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
-# Mapeo estricto de las 3 clases de nuestro TFM
+# Strict mapping of the 3 classes of our project
 LABEL_MAP = {"ham": 0, "spam": 1, "smishing": 2}
 REVERSE_LABEL_MAP = {0: "ham", 1: "spam", 2: "smishing"}
 
 def load_and_prepare_data(csv_path: str, text_col: str) -> Tuple[pd.Series, pd.Series]:
-    """Carga el dataset maestro y prepara las columnas X e y."""
+    """Load the master dataset and prepare X and y columns."""
     logger.info(f"Loading data from {csv_path}")
     df = pd.read_csv(csv_path, dtype=str)
     
-    # Asegurar que no hay nulos en el texto ni en las etiquetas
+    # Ensure there are no nulls in text or labels
     df = df.dropna(subset=[text_col, "canonical_label"])
     
-    # Filtrar solo las 3 clases oficiales (por si acaso hubiera ruido)
+    # Filter only the 3 official classes (in case of noise)
     df = df[df["canonical_label"].isin(LABEL_MAP.keys())]
     
     X = df[text_col].astype(str)
@@ -38,7 +38,7 @@ def load_and_prepare_data(csv_path: str, text_col: str) -> Tuple[pd.Series, pd.S
     return X, y
 
 def train_sklearn_model(X_train, y_train, model_type: str):
-    """Entrena un modelo clásico usando TF-IDF."""
+    """Train a classic model using TF-IDF."""
     logger.info("Vectorizing text using TF-IDF...")
     vectorizer = TfidfVectorizer(max_features=20000, ngram_range=(1, 2))
     X_train_vec = vectorizer.fit_transform(X_train)
@@ -56,7 +56,7 @@ def train_sklearn_model(X_train, y_train, model_type: str):
     return model, vectorizer
 
 def evaluate_and_save(model, vectorizer, X_test, y_test, output_dir: Path, exp_name: str):
-    """Evalúa el modelo y guarda las métricas y los pesos."""
+    """Evaluate the model and save metrics and weights."""
     logger.info("Evaluating model on test set...")
     X_test_vec = vectorizer.transform(X_test)
     y_pred = model.predict(X_test_vec)
@@ -65,13 +65,13 @@ def evaluate_and_save(model, vectorizer, X_test, y_test, output_dir: Path, exp_n
     report = classification_report(y_test, y_pred, target_names=target_names, output_dict=True)
     cm = confusion_matrix(y_test, y_pred).tolist()
     
-    # Mostrar resultados por pantalla
+    # Print results to screen
     print("\n" + "="*50)
     print(f"RESULTS FOR EXPERIMENT: {exp_name}")
     print("="*50)
     print(classification_report(y_test, y_pred, target_names=target_names))
     
-    # Guardar métricas en JSON
+    # Save metrics to JSON
     metrics_path = output_dir / "logs" / f"{exp_name}_metrics.json"
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
     
@@ -84,7 +84,7 @@ def evaluate_and_save(model, vectorizer, X_test, y_test, output_dir: Path, exp_n
         json.dump(results, f, indent=4)
     logger.info(f"Saved metrics to {metrics_path}")
     
-    # Guardar pesos del modelo
+    # Save model weights
     model_path = output_dir / "models" / f"{exp_name}_model.pkl"
     model_path.parent.mkdir(parents=True, exist_ok=True)
     with open(model_path, "wb") as f:
@@ -92,21 +92,21 @@ def evaluate_and_save(model, vectorizer, X_test, y_test, output_dir: Path, exp_n
     logger.info(f"Saved model weights to {model_path}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Script maestro de entrenamiento para el TFM")
-    parser.add_argument("--data", type=str, required=True, help="Ruta al dataset CSV")
+    parser = argparse.ArgumentParser(description="Master training script for the project")
+    parser.add_argument("--data", type=str, required=True, help="Path to the CSV dataset")
     parser.add_argument("--text-col", type=str, choices=["text", "text_anonymized"], required=True, 
-                        help="¿Usar texto original (text) o anonimizado (text_anonymized)?")
+                        help="Use original text (text) or anonymized (text_anonymized)?")
     parser.add_argument("--model", type=str, choices=["logistic", "random_forest", "deberta"], default="logistic",
-                        help="Modelo a entrenar. Nota: deberta requerirá implementación en PyTorch/HuggingFace")
-    parser.add_argument("--exp-name", type=str, required=True, help="Nombre único del experimento (ej: baseline_raw_text)")
-    parser.add_argument("--output-dir", type=str, default="experiments/results", help="Carpeta base para guardar resultados")
+                        help="Model to train. Note: deberta will require implementation in PyTorch/HuggingFace")
+    parser.add_argument("--exp-name", type=str, required=True, help="Unique experiment name (e.g., baseline_raw_text)")
+    parser.add_argument("--output-dir", type=str, default="experiments/results", help="Base folder to save results")
     
     args = parser.parse_args()
     output_dir = Path(args.output_dir)
     
     X, y = load_and_prepare_data(args.data, args.text_col)
     
-    # Dividir estratificado para mantener proporción ham/spam/smishing
+    # Stratified split to maintain ham/spam/smishing proportion
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     
     if args.model in ["logistic", "random_forest"]:
@@ -114,7 +114,7 @@ def main():
         evaluate_and_save(model, vectorizer, X_test, y_test, output_dir, args.exp_name)
     elif args.model == "deberta":
         logger.error("DeBERTa implementation goes here! Use HuggingFace Trainer API.")
-        # TODO: Implementar AutoModelForSequenceClassification para el TFM.
+        # TODO: Implement AutoModelForSequenceClassification for the project.
     
 if __name__ == "__main__":
     main()

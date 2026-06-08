@@ -86,8 +86,7 @@ class DatasetCleaner:
             "forwarded message",
             "to view this email as a web page",
             "copyright ©",
-            "all rights reserved",
-            "dear hiring professional"
+            "all rights reserved"
         ]
         
         if any(indicator in text_lower for indicator in email_indicators):
@@ -179,15 +178,11 @@ class DatasetCleaner:
             self.stats["obf_font"] += 1
             text = normalized_text
 
-        # Combine text and tags
-        # Append tags to the end of the message so the ML model can use them as features
-        final_text = text
-        if tags:
-            final_text = f"{text} {' '.join(tags)}"
-
+        # We no longer append tags to the text string. 
+        # Deep Learning models benefit from having raw text and tags separate.
         return {
-            "original": original,
-            "cleaned": final_text,
+            "text_raw": original,
+            "text_normalized": text,
             "tags": tags
         }
 
@@ -198,24 +193,24 @@ if __name__ == "__main__":
     
     sample_texts = [
         # ZWSP Obfuscation
-        "C\u200Bo\u200Br\u200Br\u200Be\u200Bo\u200Bs: Su paquete esta retenido.",
-        # Cyrillic Homoglyphs (cоrrеоs using Cyrillic o and e)
-        "cоrrеоs: Su paquete esta retenido.",
+        "P\u200Bo\u200Bs\u200Bt\u200Ba\u200Bl: Your package is held.",
+        # Cyrillic Homoglyphs (pоstаl using Cyrillic o and a)
+        "pоstаl: Your package is held.",
         # Spacing Obfuscation
-        "Su paquete de A M A Z O N ha llegado.",
+        "Your package from A M A Z O N has arrived.",
         # Punctuation Obfuscation
-        "Actualice su cuenta de P.A.Y.P.A.L ahora.",
+        "Update your P.A.Y.P.A.L account now.",
         # Font Obfuscation
-        "𝕮𝖔𝖗𝖗𝖊𝖔𝖘: Su paquete esta retenido.",
+        "𝕻𝖔𝖘𝖙𝖆𝖑: Your package is held.",
         # Newline Obfuscation (pushing the link down)
-        "Usted tiene un aviso importante.\n\n\n\n\n\n\n\n\n\nPulse aqui: http://phish.com",
+        "You have an important notice.\n\n\n\n\n\n\n\n\n\nClick here: http://phish.com",
         # Clean standard message
-        "Tu paquete ha sido entregado correctamente en tu buzon."
+        "Your package has been successfully delivered to your mailbox."
     ]
     
     for txt in sample_texts:
         result = cleaner.clean(txt)
-        print(f"Original: {repr(result['original'])}")
-        print(f"Cleaned:  {repr(result['cleaned'])}")
-        print(f"Tags:     {result['tags']}")
+        print(f"Raw:        {repr(result['text_raw'])}")
+        print(f"Normalized: {repr(result['text_normalized'])}")
+        print(f"Tags:       {result['tags']}")
         print("-" * 80)

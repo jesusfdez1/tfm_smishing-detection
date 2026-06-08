@@ -19,7 +19,7 @@ Este documento sirve como "biblia" para entender todas las columnas, categorías
 | **`language`** | Idioma principal detectado. | `Categoría` (Ver sección 5) |
 | **`language_confidence`** | Nivel de confianza de la detección del idioma. | `Float (0.0 - 1.0)` |
 | **`anonymization_status`** | Estado de anonimización del texto. | `Categoría` (Ver sección 2) |
-| **`llm_model`** | El modelo usado para enriquecer la fila. | `String` (ej. `gemini-3.1-pro`) |
+| **`llm_model`** | El modelo usado para enriquecer la fila. | `String` (ej. `Qwen/Qwen3.6-35B-A3B-FP8`) |
 | **`prompt_version`** | La versión del prompt que se utilizó en el LLM. | `String` |
 | **`llm_annotation_date`** | Fecha en la que el LLM procesó esta fila. | `String (ISO 8601)` |
 | **`theme`** | Categoría o intención principal del mensaje. | `Categoría` (Ver sección 6) |
@@ -83,12 +83,15 @@ Los idiomas se estandarizan utilizando la norma internacional ISO 639-1 (dos let
 - `unknown` (No se ha podido detectar, texto ininteligible, demasiado corto o nulo)
 
 ### 6. `theme` (Intenciones y Temáticas)
-Clasifica el propósito o temática central del mensaje. El LLM encasilla obligatoriamente el mensaje en una sola de estas 11 categorías (taxonomía cerrada) para todo el dataset:
+Clasifica el propósito o temática central del mensaje. El LLM encasilla obligatoriamente el mensaje en una sola de estas 14 categorías (taxonomía cerrada) para todo el dataset:
 - **`personal`**: Conversación casual, saludos, preguntas entre personas (ej. "What's up?").
+- **`family_emergency`**: Suplantación de familiares reclamando roturas de teléfono o solicitando dinero urgente (ej. "Hola mamá, este es mi nuevo número").
 - **`banking`**: Bancos, transferencias, tarjetas de crédito, criptomonedas.
 - **`delivery`**: Paquetería, correos, aduanas, seguimiento de envíos.
 - **`account_security`**: Bloqueo de cuentas, inicios de sesión sospechosos, verificación de identidad.
+- **`tech_support`**: Soporte técnico fraudulento, alertas de virus o infecciones falsas de dispositivos.
 - **`promotion`**: Premios, loterías, descuentos, ofertas comerciales.
+- **`survey`**: Peticiones de participación en encuestas, cuestionarios o estudios de mercado.
 - **`government`**: Multas de tráfico (DGT), impuestos (Hacienda), notificaciones de la administración pública.
 - **`job_offer`**: Ofertas de reclutamiento, empleo falso, ganar dinero fácil.
 - **`dating_adult`**: Citas, contenido sexual, contactos.
@@ -121,10 +124,10 @@ Para ilustrar cómo se engrana todo este diccionario en una fila real del CSV fi
 | `label_mapping_rule` | `unlabeled->smishing (LLM Inference)` | El LLM dedujo la etiqueta al carecer de una en la fase 2. |
 | `timestamp_original` | | No constaba la hora original en el dataset de origen. |
 | `license` | `Academic Use Only` | Condición de uso estipulada por la fuente original. |
-| `language` | `es` | Idioma español ISO 639-1 (Detectado por `langdetect`). |
+| `language` | `es` | Idioma español ISO 639-1 (Detectado por el motor FastText). |
 | `language_confidence` | `0.998` | 99.8% de confianza del modelo detector de lenguaje. |
 | `anonymization_status` | `anonymized` | Nuestro script aplicó Regex en fase 1 para limpiar PII. |
-| `llm_model` | `gemini-3.1-pro` | Modelo de Google Gemini utilizado para enriquecer este mensaje. |
+| `llm_model` | `Qwen/Qwen3.6-35B-A3B-FP8` | Modelo local de Hugging Face y vLLM utilizado para enriquecer este mensaje. |
 | `prompt_version` | `v3.0` | Versión interna del script que construye los prompts de anotación. |
 | `llm_annotation_date` | `2026-05-28T21:50:00Z` | Fecha ISO en la que el LLM nos devolvió el resultado. |
 | **`theme`** | `banking` | Encaja exactamente en la taxonomía bancaria. |
