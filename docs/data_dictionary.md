@@ -1,6 +1,6 @@
 # Diccionario de Datos del Meta-Dataset SMS
 
-Este documento sirve como "biblia" para entender todas las columnas, categorías y valores posibles que conforman el meta-dataset final `metasms_hss_master.csv`. Toda la información contenida en el dataset obedece a las siguientes reglas y diccionarios de datos.
+Este documento proporciona la descripción formal de todas las variables, categorías y esquemas de codificación que conforman el meta-dataset final `metasms_hss_master.csv`. Toda la información contenida en el dataset obedece a las siguientes reglas estandarizadas y diccionarios de datos.
 
 ## Estructura General de las Columnas
 

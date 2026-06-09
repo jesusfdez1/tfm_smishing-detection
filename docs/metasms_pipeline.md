@@ -35,10 +35,10 @@ The pipeline applies the following steps in order:
    - Retries using lowercase text in case of noisy/ALL-CAPS SMS messages.
    - Maps language codes to ISO 639-1 using `pycountry`.
 
-4. LLM enrichment y Whois (Opcional - Fase 2)
-   - Realizado por `enrich_metadataset.py`.
-   - Añade `theme`, `urgency_level` y opcionalmente deduce la etiqueta.
-   - Extrae dominios de las URLs y consulta Whois (edad, país, privacidad).
+4. LLM Enrichment and Whois (Optional - Phase 2)
+   - Executed via `enrich_metadataset.py`.
+   - Appends `theme`, `urgency_level`, and optionally infers the classification label.
+   - Extracts domains from URLs and retrieves Whois metadata (age, country, privacy status).
 
 5. Deduplication
    - Hashes normalized anonymized text.
@@ -53,12 +53,12 @@ The pipeline applies the following steps in order:
 The master CSV includes the original schema plus these extra fields:
 - text_anonymized
 - anonymization_status (raw, anonymized, pre_anonymized)
-- whois_domain, whois_tld, whois_age_days, whois_hidden, whois_country (Añadidos en fase 2)
-- theme, urgency_level, llm_model, prompt_version (Añadidos en fase 2)
+- whois_domain, whois_tld, whois_age_days, whois_hidden, whois_country (Appended in Phase 2)
+- theme, urgency_level, llm_model, prompt_version (Appended in Phase 2)
 
 ## Running the build
 
-**Fase 1: Construcción (Sin LLM)**
+**Phase 1: Build (Without LLM)**
 Basic run:
 ```bash
 python src/dataset/build_metadataset.py
@@ -79,7 +79,7 @@ Disable dedupe:
 python src/dataset/build_metadataset.py --no-dedupe
 ```
 
-**Fase 2: Enriquecimiento con LLM y Whois**
+**Phase 2: LLM and Whois Enrichment**
 ```bash
 python src/dataset/enrich_metadataset.py --input data/processed/metasms_v1.csv --output data/processed/metasms_v1_enriched.csv --model Qwen/Qwen3.5-35B-A3B-GPTQ-Int4
 ```
@@ -88,7 +88,7 @@ python src/dataset/enrich_metadataset.py --input data/processed/metasms_v1.csv -
 
 If `--output` is omitted in Phase 1, the filename encodes the main options, for example:
 
-`metasms_v1_privacy.csv` o `metasms_v1_nodedupe_with_ai.csv`
+`metasms_v1_privacy.csv` or `metasms_v1_nodedupe_with_ai.csv`
 
 ## Notes on privacy-filter
 

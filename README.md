@@ -6,13 +6,13 @@ This repository contains the complete experimental framework and data engineerin
 
 ## 1. Dataset Composition
 
-> 📖 **Diccionario de Datos:** Para ver la explicación detallada de cada columna del CSV, así como la taxonomía de intenciones (`theme`), niveles de urgencia e idiomas ISO, consulta el **[Diccionario de Datos (Biblia)](docs/data_dictionary.md)**.
+> **Data Dictionary:** For a detailed explanation of each CSV column, including the taxonomy of intents (`theme`), urgency levels, and ISO language codes, please refer to the **[Data Dictionary](docs/data_dictionary.md)**.
 
 The meta-dataset is dynamically aggregated from **13 independent, heterogeneous sources** via `build_metadataset.py`, specifically curated to balance classes and maximize lexical diversity while strictly excluding standard emails to ensure domain fidelity:
 
-| # | Dataset | Samples | Classes | Format | Original Source |
-|---|---------|----------|--------|---------|--------|
-| 1 | ExAIS SMS Spam | 5,240 | 2 (Spam, Ham) | CSV | Onashoga et al. (2015) |
+| # | Dataset | Samples | Classes | Format | Original Source / Citation |
+|---|---------|----------|--------|---------|----------------------------|
+| 1 | ExAIS SMS Spam | 5,240 | 2 (Spam, Ham) | CSV | [Onashoga et al. (2015)](#6-academic-references) |
 | 2 | Mishra & Soni 2022 | 5,971 | 3 (Ham, Spam, Smishing) | CSV | [Mendeley](https://doi.org/10.17632/f45bkkt8pr.1) |
 | 3 | Mishra Extended | 10,191 | 3 (Ham, Spam, Smishing) | CSV | [Mendeley](https://doi.org/10.17632/f45bkkt8pr.1) |
 | 4 | Hosseinpour 2025 | — | 3 (Ham, Spam, Smishing) | CSV | [ACM DL](https://doi.org/10.1145/3734477.3736147) |
@@ -23,12 +23,12 @@ The meta-dataset is dynamically aggregated from **13 independent, heterogeneous 
 | 9 | Kaggle Phishing | 1,001 | 1 (Smishing) | CSV | Kaggle |
 | 10 | Malicious-Benign SMS/MMS | ~383,000 (Non-AI) | 2 (Benign, Spam) | CSV | [HuggingFace](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset) |
 | 11 | Spanish Spam/Ham | 1,209 | 2 (Spam, Ham) | CSV | HuggingFace |
-| 12 | Smishing-4C | 120 | 4 Thematic Cats. | CSV | Kaggle / Mendeley |
-| 13 | MIMICS-3500 | 3,500 | 7 / 13 Classes | CSV | Multiple Sources |
+| 12 | Smishing-4C | 120 | 4 Thematic Cats. | CSV | [Martínez-Mendoza et al. (2024)](#6-academic-references) |
+| 13 | MIMICS-3500 | 3,500 | 7 / 13 Classes | CSV | [Martínez-Mendoza et al. (2026)](#6-academic-references) |
 
-> ℹ️ **Note on SmishTank:** The SmishTank dataset is processed via a separate, standalone pipeline (`src/dataset/build_smishtank_standalone.py`) to preserve its specific community verification scores and metadata.
+> **Note on SmishTank:** The SmishTank dataset is processed via a separate, standalone pipeline (`src/dataset/build_smishtank_standalone.py`) to preserve its specific community verification scores and metadata.
 >
-> ℹ️ **Note on Dataset #10:** The *Malicious-Benign SMS/MMS* dataset is sourced from HuggingFace at [https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset). Only `dataset_v3_undersampled_stratified_full.csv` is required for building the MetaSMS dataset. All LLM-generated synthetic data has been strictly excluded from this pipeline to maintain data purity and avoid synthetic bias.
+> **Note on Dataset #10:** The *Malicious-Benign SMS/MMS* dataset is sourced from HuggingFace at [https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset). Only `dataset_v3_undersampled_stratified_full.csv` is required for building the MetaSMS dataset. All LLM-generated synthetic data has been strictly excluded from this pipeline to maintain data purity and avoid synthetic bias.
 
 ## 2. Architectural Structure
 
@@ -76,20 +76,14 @@ python src/dataset/enrich_metadataset.py --input data/processed/metasms_hss_mast
 
 ### 3.2. Machine Learning Framework (Experimentation)
 
-The ML framework is designed to validate academic hypotheses, such as the predictive impact of text anonymization on classification efficacy.
+The ML framework is designed to execute a comprehensive evaluation grid combining multiple text encoders (BoW, TF-IDF, Word2Vec, FastText, MiniLM) and traditional classifiers (Naive Bayes, Logistic Regression, Random Forest, XGBoost, SVM) on the consolidated MetaSMS dataset using a stratified 80/10/10 split.
 
 ```bash
-# Experiment A: Train baseline on RAW, non-anonymized text
-python src/experiments/train_model.py --data data/processed/metasms_hss_master.csv \
-  --text-col text --model logistic --exp-name baseline_raw_text
+# Execute the full machine learning evaluation grid
+python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml
 
-# Experiment B: Train baseline on ANONYMIZED text (Privacy-preserving constraint)
-python src/experiments/train_model.py --data data/processed/metasms_hss_master.csv \
-  --text-col text_anonymized --model logistic --exp-name baseline_anonymized_text
-
-# Evaluate a trained model on a hold-out test set
-python src/experiments/evaluate.py --model-path experiments/results/models/baseline_raw_text_model.pkl \
-  --test-data data/processed/test_set.csv --text-col text
+# Execute the grid on specific datasets with specific models
+python -m src.experiments.ml.main --datasets metasms --encoders tfidf fasttext --classifiers logreg rf
 ```
 
 ## 4. Installation & Requirements
@@ -105,3 +99,16 @@ pip install -r requirements.txt
 
 For academic and research use only. The source code provided in this repository is part of a Master's Thesis. 
 Consult the individual licenses of each constituent dataset located in `docs/raw_data.md` prior to commercial utilization.
+
+## 6. Academic References
+
+This project utilizes and incorporates the following novel multi-class datasets for smishing detection. If you use the **Smishing-4C** or **MIMICS-3500** datasets in your research, please cite the corresponding publications:
+
+### Smishing-4C Dataset
+> Martínez-Mendoza, A., Jáñez-Martino, F., Carofilis, A., Fernández-Robles, L., Alegre, E., & Fidalgo, E. (2024). **Towards Multi-Class Smishing Detection: A Novel Feature Vector Approach and the Smishing-4C Dataset**. *SEPLN-2024: 40th Conference of the Spanish Society for Natural Language Processing*. CEUR Workshop Proceedings.
+
+### MIMICS-3500 Dataset
+> Martínez-Mendoza, A., Fidalgo, E., Alegre, E., & Fernández-Robles, L. (2026). **Building a multi-class Short Message Service dataset for smishing detection using agglomerative clustering and dataset fusion**. *Engineering Applications of Artificial Intelligence*, 163(1), 112864. [DOI: 10.1016/j.engappai.2025.112864](https://doi.org/10.1016/j.engappai.2025.112864)
+
+### ExAIS SMS Spam Dataset
+> Onashoga, A. S., Abayomi-Alli, O. O., Sodiya, A. S., & Ojo, D. A. (2015). **An Adaptive and Collaborative Server-Side SMS Spam Filtering Scheme Using Artificial Immune System**. *Information Security Journal: A Global Perspective*, 24(4-6), 133-145. [GitHub Repository](https://github.com/AbayomiAlli/SMS-Spam-Dataset)
