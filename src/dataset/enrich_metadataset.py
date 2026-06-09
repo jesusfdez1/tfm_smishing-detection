@@ -7,7 +7,10 @@ and writes the enriched results to a new CSV.
 
 import argparse
 import csv
+import datetime
+import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Dict, Any, List
@@ -89,19 +92,11 @@ def process_batch(
             row["whois_hidden"] = ""
             row["whois_country"] = ""
             
-            import json
-            import re
             try:
                 text = row.get("text", "")
                 urls = re.findall(r"(?:https?://[^\s]+|[a-zA-Z0-9.-]+\.(?:com|org|net|info|biz|me|ly|co|us|uk|es|fr|ru)(?::\d+)?(?:/[^\s>]*)?)", text)
                 
-                if not urls:
-                    row["whois_domain"] = ""
-                    row["whois_tld"] = ""
-                    row["whois_age_days"] = ""
-                    row["whois_hidden"] = ""
-                    row["whois_country"] = ""
-                else:
+                if urls:
                     best_w_data = None
                     best_score = -9999
                     has_error = False
@@ -135,15 +130,6 @@ def process_batch(
                     elif has_error:
                         row["whois_domain"] = "ERROR"
                         row["whois_tld"] = "ERROR"
-                        row["whois_age_days"] = ""
-                        row["whois_hidden"] = ""
-                        row["whois_country"] = ""
-                    else:
-                        row["whois_domain"] = ""
-                        row["whois_tld"] = ""
-                        row["whois_age_days"] = ""
-                        row["whois_hidden"] = ""
-                        row["whois_country"] = ""
             except Exception as e:
                 logger.debug(f"Failed to process WHOIS for row: {e}")
 
@@ -155,11 +141,9 @@ def process_batch(
 
 def save_resume_state(state_path: Path, state: dict) -> None:
     """Persist resume state using a temp file for atomic writes."""
-    import json
     tmp_path = state_path.with_suffix(".tmp")
     with tmp_path.open("w", encoding="utf-8") as handle:
         json.dump(state, handle, ensure_ascii=True, indent=2)
-    import time
     for attempt in range(5):
         try:
             tmp_path.replace(state_path)
@@ -182,7 +166,7 @@ def enrich_dataset(
         return
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
-    annotator = LLMMetadataAnnotator(use_mock=False, model_name=model_name)
+    annotator = LLMMetadataAnnotator(model_name=model_name)
     whois_enricher = WhoisEnricher()
     
     total_written = 0
@@ -209,6 +193,7 @@ def enrich_dataset(
 
     state_path = output_csv.with_suffix(".state.json")
     state = {
+        "split": output_csv.name,
         "total_processed": len(processed_ids) if resume else 0,
         "last_updated": ""
     }
@@ -237,10 +222,10 @@ def enrich_dataset(
                     batch_buffer.clear()
                     
                     state["total_processed"] += written_in_batch
-                    import datetime
                     state["last_updated"] = datetime.datetime.now().isoformat()
                     save_resume_state(state_path, state)
-                    logger.info("Enriched %d rows...", state["total_processed"])
+                    out_f.flush()
+                    logger.info("Progress state:\n%s", json.dumps(state, indent=2))
                     
             # Process remaining
             if batch_buffer:
@@ -250,10 +235,10 @@ def enrich_dataset(
                 total_written += written_in_batch
                 
                 state["total_processed"] += written_in_batch
-                import datetime
                 state["last_updated"] = datetime.datetime.now().isoformat()
                 save_resume_state(state_path, state)
-                logger.info("Enriched %d rows...", state["total_processed"])
+                out_f.flush()
+                logger.info("Progress state:\n%s", json.dumps(state, indent=2))
                 
     except KeyboardInterrupt:
         logger.info("Interrupted by user. Total written this session: %d", total_written)
@@ -271,8 +256,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Enrich MetaSMS-HSS dataset using LLM")
     parser.add_argument("--input", type=str, required=True, help="Path to input unlabeled CSV")
     parser.add_argument("--output", type=str, required=True, help="Path to save enriched output CSV")
-    parser.add_argument("--model", type=str, default="Qwen/Qwen3.6-35B-A3B-FP8", help="Local Hugging Face model name to use.")
-    parser.add_argument("--batch-size", type=int, default=15, help="Number of rows to process in one LLM call")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen3.5-35B-A3B-GPTQ-Int4", help="Local Hugging Face model name to use.")
+    parser.add_argument("--batch-size", type=int, default=100, help="Number of rows to process in one LLM call")
     parser.add_argument("--resume", action="store_true", help="Resume from previous partial run by skipping already processed rows in output CSV")
     
     args = parser.parse_args()

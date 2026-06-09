@@ -81,7 +81,7 @@ python src/dataset/build_metadataset.py --no-dedupe
 
 **Fase 2: Enriquecimiento con LLM y Whois**
 ```bash
-python src/dataset/enrich_metadataset.py --input data/processed/metasms_v1.csv --output data/processed/metasms_v1_enriched.csv --model Qwen/Qwen3.6-35B-A3B-FP8
+python src/dataset/enrich_metadataset.py --input data/processed/metasms_v1.csv --output data/processed/metasms_v1_enriched.csv --model Qwen/Qwen3.5-35B-A3B-GPTQ-Int4
 ```
 
 ## Output naming

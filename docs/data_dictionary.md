@@ -8,8 +8,9 @@ Este documento sirve como "biblia" para entender todas las columnas, categorías
 |---------|-------------|--------------------------------|
 | **`message_id`** | Identificador único del mensaje (ej. `msg_1a2b3c4d`). | `String (Hash)` |
 | **`canonical_label`** | Etiqueta unificada definitiva. | `Categoría` (Ver sección 3) |
-| **`text_anonymized`** | Texto procesado ocultando PII (Sustituyendo URLs, teléfonos). | `String` |
-| **`text`** | Texto original del mensaje (antes de anonimizar, si procede). | `String` |
+| **`text_raw`** | Mensaje original en bruto sin alterar, tal y como proviene de la fuente (con posibles ofuscaciones e información PII). | `String` |
+| **`text`** | Mensaje procesado y normalizado tras mitigar ofuscaciones, pero conservando los enlaces y teléfonos reales (texto procesado). | `String` |
+| **`text_anonymized`** | Mensaje normalizado tras aplicar adicionalmente el enmascaramiento de privacidad (PII sustituida por tokens). | `String` |
 | **`reference`** | Nombre del dataset o fuente de donde proviene. | `Categoría` (Ver sección 4) |
 | **`source_id`** | ID original del mensaje en su dataset de origen. | `String` o Vacío |
 | **`original_label`** | La etiqueta original que tenía el mensaje en su origen. | `String` |
@@ -17,15 +18,15 @@ Este documento sirve como "biblia" para entender todas las columnas, categorías
 | **`timestamp_original`** | Fecha y hora original del mensaje (si estaba disponible). | `String (ISO 8601)` o Vacío |
 | **`license`** | Licencia de uso del mensaje/dataset original. | `String` |
 | **`language`** | Idioma principal detectado. | `Categoría` (Ver sección 5) |
-| **`language_confidence`** | Nivel de confianza de la detección del idioma. | `Float (0.0 - 1.0)` |
+| **`language_confidence`** | Nivel de confianza de la detección del idioma. | `Float (0.0 - 1.0)` o `"LLM"` |
 | **`anonymization_status`** | Estado de anonimización del texto. | `Categoría` (Ver sección 2) |
-| **`llm_model`** | El modelo usado para enriquecer la fila. | `String` (ej. `Qwen/Qwen3.6-35B-A3B-FP8`) |
+| **`llm_model`** | El modelo usado para enriquecer la fila. | `String` (ej. `Qwen/Qwen3.5-35B-A3B-GPTQ-Int4`) |
 | **`prompt_version`** | La versión del prompt que se utilizó en el LLM. | `String` |
 | **`llm_annotation_date`** | Fecha en la que el LLM procesó esta fila. | `String (ISO 8601)` |
 | **`theme`** | Categoría o intención principal del mensaje. | `Categoría` (Ver sección 6) |
 | **`urgency_level`** | Nivel de urgencia que transmite el mensaje. | `Categoría` (Ver sección 7) |
-| **`whois_domain`** | Dominio extraído del enlace (si existe) tras la resolución de Whois. | `String` |
-| **`whois_tld`** | Dominio de nivel superior (Top Level Domain) extraído del dominio. | `String` |
+| **`whois_domain`** | Dominio extraído del enlace (si existe) tras la resolución de Whois. | `String` (o `"ERROR"`) |
+| **`whois_tld`** | Dominio de nivel superior (Top Level Domain) extraído del dominio. | `String` (o `"ERROR"`) |
 | **`whois_age_days`** | Edad en días del dominio extraída mediante Whois. | `Integer` |
 | **`whois_hidden`** | Indica si los detalles de Whois del dominio están ocultos/privados (1 o 0). | `Booleano (0 o 1)` |
 | **`whois_country`** | País de registro del dominio obtenido vía Whois. | `String` |
@@ -116,8 +117,9 @@ Para ilustrar cómo se engrana todo este diccionario en una fila real del CSV fi
 |---------|------------------|----------------------------------------|
 | `message_id` | `msg_8f9a2b1c4e5d` | Hash único generado por el script en la fase 1. |
 | `canonical_label` | `smishing` | Categoría unificada (ataque de phishing vía SMS). |
-| `text_anonymized` | `Banco Santander: Su tarjeta ha sido limitada. Para reactivarla visite [URL]` | La URL maliciosa ha sido sustituida por el token `[URL]`. |
-| `text` | `Banco Santander: Su tarjeta ha sido limitada. Para reactivarla visite http://bit.ly/sant-phish` | Texto tal cual viene del dataset origen, sin modificar. |
+| `text_raw` | `Banco Santander: Su tarjeta ha sido limitada. Para reactivarla visite http://bit.ly/sant-phish` | Texto original en bruto recibido directamente de la fuente. |
+| `text` | `Banco Santander: Su tarjeta ha sido limitada. Para reactivarla visite http://bit.ly/sant-phish` | Texto normalizado (en este ejemplo no contenía marcas de ofuscación). |
+| `text_anonymized` | `Banco Santander: Su tarjeta ha sido limitada. Para reactivarla visite <URL>` | Texto tras enmascarar la URL maliciosa por la meta-marca unificada `<URL>`. |
 | `reference` | `smishtank` | Proviene del repositorio web de SmishTank. |
 | `source_id` | `102394` | ID de la sumisión original en la base de datos de SmishTank. |
 | `original_label` | `unlabeled (raw submission)` | En el JSON original no venía etiquetado como validado por la comunidad. |
@@ -127,8 +129,8 @@ Para ilustrar cómo se engrana todo este diccionario en una fila real del CSV fi
 | `language` | `es` | Idioma español ISO 639-1 (Detectado por el motor FastText). |
 | `language_confidence` | `0.998` | 99.8% de confianza del modelo detector de lenguaje. |
 | `anonymization_status` | `anonymized` | Nuestro script aplicó Regex en fase 1 para limpiar PII. |
-| `llm_model` | `Qwen/Qwen3.6-35B-A3B-FP8` | Modelo local de Hugging Face y vLLM utilizado para enriquecer este mensaje. |
-| `prompt_version` | `v3.0` | Versión interna del script que construye los prompts de anotación. |
+| `llm_model` | `Qwen/Qwen3.5-35B-A3B-GPTQ-Int4` | Modelo local de Hugging Face y vLLM utilizado para enriquecer este mensaje. |
+| `prompt_version` | `v1.0-local` | Versión interna del script que construye los prompts de anotación. |
 | `llm_annotation_date` | `2026-05-28T21:50:00Z` | Fecha ISO en la que el LLM nos devolvió el resultado. |
 | **`theme`** | `banking` | Encaja exactamente en la taxonomía bancaria. |
 | **`urgency_level`** | `high` | Nivel máximo de urgencia por amenaza explícita de limitación de tarjeta. |
@@ -142,46 +144,37 @@ Para ilustrar cómo se engrana todo este diccionario en una fila real del CSV fi
 
 ## Anexo: Prompt Maestro (LLM)
 
-Para garantizar la reproducibilidad y la transparencia en la investigación (trazabilidad del campo `prompt_version`), a continuación se expone el prompt exacto de sistema (versión **`v3.0`**) utilizado para extraer las características `theme` y `urgency_level` mediante Zero/Few-Shot Learning con Chain-of-Thought (CoT):
+Para garantizar la reproducibilidad y la transparencia en la investigación (trazabilidad del campo `prompt_version`), a continuación se expone el prompt exacto de sistema (versión **`v1.0-local`**) utilizado para extraer las características `theme`, `urgency_level` y `language` mediante Zero-Shot Learning y Guided JSON Decoding (optimizando latencia eliminando explicaciones co-think):
 
 ```text
 You are an expert cybersecurity analyst annotating SMS messages for a machine learning dataset.
-You will receive a JSON array of text messages. The input messages may be in multiple languages (Spanish, English, French, etc.). Analyze the semantic meaning in its native language, but ALWAYS write your "reasoning" and JSON keys in English.
 
-You must return a strict JSON array of objects, one for each input message, in the EXACT SAME ORDER.
+Analyze the semantic meaning and return a JSON object with EXACTLY these keys:
+- "theme": strictly one of: personal, family_emergency, banking, delivery, account_security, tech_support, promotion, survey, government, job_offer, dating_adult, subscription, service_alert, unknown
+- "urgency_level": strictly one of: none, low, medium, high
+- "language": 2-letter ISO 639-1 code (e.g., "en", "es", "fr")
 
-For each object, you must include EXACTLY these keys:
-- "reasoning": string, a brief 1-2 sentence explanation of your analysis in English.
-- "theme": string, strictly one of the themes listed below.
-- "urgency_level": string, strictly one of the urgency levels listed below.
+Theme definitions:
+- personal: Casual conversation, greetings, family matters.
+- family_emergency: Fake relatives asking for money ("Hi mom, new number").
+- banking: Banks, transfers, cards, crypto, financial alerts.
+- delivery: Packages, post office, customs, shipping.
+- account_security: Account locks, suspicious logins, OTP codes.
+- tech_support: Fake tech support, virus alerts.
+- promotion: Prizes, lotteries, discounts, aggressive offers.
+- survey: Requests to complete surveys or feedback.
+- government: Traffic fines, taxes, public administration.
+- job_offer: Recruitment, work from home, easy money scams.
+- dating_adult: Dating, sexual content, adult contacts.
+- subscription: Premium SMS, horoscopes, ringtones, paid services.
+- service_alert: Medical appointments, utility bills, carrier reminders.
+- unknown: Unreadable or doesn't fit elsewhere.
 
-Themes mapping (Strictly MECE):
-- personal: Casual conversation, greetings, family matters, or personal questions.
-- banking: Banks, wire transfers, credit/debit cards, crypto, or specific financial alerts.
-- delivery: Packages, post office, customs fees, shipping tracking (e.g. Correos, DHL).
-- account_security: Account locks, suspicious logins, PIN/OTP codes, or identity verification (even if related to a bank, if the focus is the account login/security, use this).
-- promotion: Prizes won, lotteries, discounts, aggressive commercial offers, or gifts.
-- government: Traffic fines (DGT), taxes (Hacienda), public administration notifications.
-- job_offer: Recruitment, job offers, work from home opportunities, easy money scams.
-- dating_adult: Dating, sexual content, "hot singles", adult contacts.
-- subscription: Premium SMS services, horoscopes, ringtones, paid subscriptions.
-- service_alert: Medical appointments, utility bills/outages, mobile carrier service reminders.
-- unknown: Completely unreadable, lacks context, or does not fit anywhere else.
+Urgency definitions:
+- none: No urgency. Normal chat or passive info.
+- low: Informative, future action, no time pressure.
+- medium: Attention soon ("reply when you can", "arrives tomorrow").
+- high: Immediate action. Psychological pressure, threats, short deadlines.
 
-Urgency levels:
-- none: No urgency at all. Normal chat or purely passive information.
-- low: Informative, requires some future action but with absolutely no time pressure.
-- medium: Requires attention soon (e.g., "reply when you can", "your package arrives tomorrow").
-- high: Immediate action required. Heavy psychological pressure, threats of account suspension, fines, or very short time limits (e.g., "Act within 24h or lose your account").
-
-EXAMPLES:
-
-Input: ["Hey mom, can you pick me up at 5?", "OFERTA: 50% de descuento en tus gafas de sol. Compra ya en opticasol.es/baja", "URGENT: Your bank account is suspended. Verify your identity immediately at http://secure-bank-login.com"]
-Output: [
-  {"reasoning": "Personal communication between family members. No malicious intent or marketing.", "theme": "personal", "urgency_level": "none"},
-  {"reasoning": "Marketing message from a commercial entity offering a discount. Not deceptive.", "theme": "promotion", "urgency_level": "medium"},
-  {"reasoning": "High-urgency deceptive message attempting to steal credentials via a fake URL under the guise of account suspension.", "theme": "account_security", "urgency_level": "high"}
-]
-
-Respond ONLY with valid JSON. No markdown, no formatting.
+Return ONLY the raw JSON object. No markdown, no explanations.
 ```
