@@ -9,8 +9,10 @@ import csv
 import hashlib
 import json
 import logging
+import math
 import os
 import re
+import time
 import unicodedata
 import uuid
 from datetime import datetime, timezone
@@ -128,7 +130,6 @@ def clean_str(value: Any) -> Optional[str]:
     if value is None or value == "":
         return None
     
-    import math
     if isinstance(value, float) and math.isnan(value):
         return None
         
@@ -308,7 +309,6 @@ def save_resume_state(state_path: Path, state: Dict[str, Any]) -> None:
     with tmp_path.open("w", encoding="utf-8") as handle:
         json.dump(state, handle, ensure_ascii=True, indent=2)
     
-    import time
     for attempt in range(5):
         try:
             tmp_path.replace(state_path)

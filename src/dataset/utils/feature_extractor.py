@@ -1,4 +1,5 @@
 import math
+import re
 import urllib.parse
 from collections import Counter
 from typing import Dict, Any, List
@@ -74,7 +75,6 @@ class URLFeatureExtractor:
                 features["num_subdomains"] = float(max(0, num_subdomains))
                 
             # Check if domain is an IP address
-            import re
             if re.match(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$", domain):
                 features["has_ip_in_domain"] = 1.0
                 
