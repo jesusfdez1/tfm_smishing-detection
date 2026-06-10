@@ -1,7 +1,5 @@
 # MetaSMS-HSS: A Unified Framework for Smishing Detection
 
-> **Master's Thesis Project** — Smishing Detection using Machine Learning, Deep Learning, and Large Language Models (LLMs).
-
 This repository contains the complete experimental framework and data engineering pipeline for **MetaSMS-HSS** (*Meta-dataset for Ham, Spam, and Smishing*). It facilitates the ingestion of highly heterogeneous sources into a unified, traceable, and anonymized meta-dataset, alongside a robust machine learning pipeline for experimental validation.
 
 ## 1. Dataset Composition
@@ -13,22 +11,21 @@ The meta-dataset is dynamically aggregated from **13 independent, heterogeneous 
 | # | Dataset | Samples | Classes | Format | Original Source / Citation |
 |---|---------|----------|--------|---------|----------------------------|
 | 1 | ExAIS SMS Spam | 5,240 | 2 (Spam, Ham) | CSV | [Onashoga et al. (2015)](#6-academic-references) |
-| 2 | Mishra & Soni 2022 | 5,971 | 3 (Ham, Spam, Smishing) | CSV | [Mendeley](https://doi.org/10.17632/f45bkkt8pr.1) |
-| 3 | Mishra Extended | 10,191 | 3 (Ham, Spam, Smishing) | CSV | [Mendeley](https://doi.org/10.17632/f45bkkt8pr.1) |
-| 4 | Hosseinpour 2025 | — | 3 (Ham, Spam, Smishing) | CSV | [ACM DL](https://doi.org/10.1145/3734477.3736147) |
-| 5 | Agarwal IMC 2025 | — | 1 (Smishing) | CSV | [ACM DL](https://doi.org/10.1145/3730567.3764431) |
+| 2 | Mishra & Soni 2022 | 5,971 | 3 (Ham, Spam, Smishing) | CSV | [Mishra & Soni (2022)](#6-academic-references) |
+| 3 | Mishra Extended | 10,191 | 3 (Ham, Spam, Smishing) | CSV | [Mishra & Soni (2022)](#6-academic-references) |
+| 4 | Hosseinpour 2025 | — | 3 (Ham, Spam, Smishing) | CSV | [Hosseinpour & Das (2025)](#6-academic-references) |
+| 5 | Agarwal IMC 2025 | — | 1 (Smishing) | CSV | [Agarwal et al. (2025)](#6-academic-references) |
 | 6 | UCI SMS Spam | 5,574 | 2 (Ham, Spam) | TSV | [UCI](https://archive.ics.uci.edu/dataset/228/sms+spam+collection) |
-| 7 | NUS SMS Corpus | ~67,000 | 1 (Ham) | JSON | [DOI](https://doi.org/10.1007/s10579-012-9197-9) |
-| 8 | Kaggle Spam/Ham | ~10,800 | 2 (Spam, Ham) | CSV | Kaggle |
-| 9 | Kaggle Phishing | 1,001 | 1 (Smishing) | CSV | Kaggle |
+| 7 | NUS SMS Corpus | ~67,000 | 1 (Ham) | JSON | [Chen & Kan (2013)](#6-academic-references) |
+| 8 | Kaggle Spam/Ham | ~10,800 | 2 (Spam, Ham) | CSV | [Kumar (Kaggle)](#6-academic-references) |
+| 9 | Kaggle Phishing | 1,001 | 1 (Smishing) | CSV | [Tijjani (Kaggle)](#6-academic-references) |
 | 10 | Malicious-Benign SMS/MMS | ~383,000 (Non-AI) | 2 (Benign, Spam) | CSV | [HuggingFace](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset) |
-| 11 | Spanish Spam/Ham | 1,209 | 2 (Spam, Ham) | CSV | HuggingFace |
+| 11 | Spanish Spam/Ham | 1,209 | 2 (Spam, Ham) | CSV | [HuggingFace](https://huggingface.co/datasets/softecapps/spam_ham_spanish) |
 | 12 | Smishing-4C | 120 | 4 Thematic Cats. | CSV | [Martínez-Mendoza et al. (2024)](#6-academic-references) |
 | 13 | MIMICS-3500 | 3,500 | 7 / 13 Classes | CSV | [Martínez-Mendoza et al. (2026)](#6-academic-references) |
 
 > **Note on SmishTank:** The SmishTank dataset is processed via a separate, standalone pipeline (`src/dataset/build_smishtank_standalone.py`) to preserve its specific community verification scores and metadata.
->
-> **Note on Dataset #10:** The *Malicious-Benign SMS/MMS* dataset is sourced from HuggingFace at [https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset). Only `dataset_v3_undersampled_stratified_full.csv` is required for building the MetaSMS dataset. All LLM-generated synthetic data has been strictly excluded from this pipeline to maintain data purity and avoid synthetic bias.
+
 
 ## 2. Architectural Structure
 
@@ -36,25 +33,13 @@ The project is strictly modularized, segregating the Extract-Transform-Load (ETL
 
 ```text
 tfm_smishing-detection/
-├── data/
-│   ├── raw/                  # Immutable raw data sources
-│   └── processed/            # Master CSV outputs (MetaSMS-HSS)
-├── experiments/
-│   └── results/              # ML artifacts (weights, metrics, confusion matrices)
-├── src/
-│   ├── dataset/              # Data Engineering & ETL Pipeline
-│   │   ├── build_metadataset.py # Master dataset aggregation script
-│   │   ├── enrich_metadataset.py # LLM enrichment and feature extraction
-│   │   ├── create_subset.py  # CLI utility for stratified subset creation
-│   │   └── utils/            # Core ETL modules (anonymization, LLM, deduplication)
-│   └── experiments/          # ML Experimental Framework
-│       ├── train_model.py    # Training script (Baseline & Transformer support)
-│       └── evaluate.py       # Evaluation and visualization utilities
-├── docs/                     # Extended academic documentation
-│   ├── data_dictionary.md    # Master Data Dictionary and Categories
-│   └── experimentos.md       # Experiments tracking and commands
-├── requirements.txt
-└── README.md
+├── data/       # Raw data sources and processed master datasets
+├── docs/       # Extended academic documentation and data dictionary
+├── output/     # Results, metrics, and generated ML artifacts
+├── scripts/    # Automated shell scripts for task execution
+└── src/        # Main project source code
+    ├── dataset/       # Data engineering and ETL pipeline
+    └── experiments/   # Machine learning experimental framework
 ```
 
 ## 3. Usage Guide
@@ -111,4 +96,22 @@ This project utilizes and incorporates the following novel multi-class datasets 
 > Martínez-Mendoza, A., Fidalgo, E., Alegre, E., & Fernández-Robles, L. (2026). **Building a multi-class Short Message Service dataset for smishing detection using agglomerative clustering and dataset fusion**. *Engineering Applications of Artificial Intelligence*, 163(1), 112864. [DOI: 10.1016/j.engappai.2025.112864](https://doi.org/10.1016/j.engappai.2025.112864)
 
 ### ExAIS SMS Spam Dataset
-> Onashoga, A. S., Abayomi-Alli, O. O., Sodiya, A. S., & Ojo, D. A. (2015). **An Adaptive and Collaborative Server-Side SMS Spam Filtering Scheme Using Artificial Immune System**. *Information Security Journal: A Global Perspective*, 24(4-6), 133-145. [GitHub Repository](https://github.com/AbayomiAlli/SMS-Spam-Dataset)
+> Onashoga, A. S., Abayomi-Alli, O. O., Sodiya, A. S., & Ojo, D. A. (2015). **An Adaptive and Collaborative Server-Side SMS Spam Filtering Scheme Using Artificial Immune System**. *Information Security Journal: A Global Perspective*, 24(4-6), 133-145. [GitHub Repository](https://github.com/AbayomiAlli/SMS-Spam-Dataset)
+
+### Mishra & Soni (2022)
+> Mishra, Ritu; Soni, Pinal (2022), **Smishing Dataset**, *Mendeley Data*, V1. [DOI: 10.17632/f45bkkt8pr.1](https://doi.org/10.17632/f45bkkt8pr.1)
+
+### Hosseinpour & Das (2025)
+> Hosseinpour, Shaghayegh, and Sanchari Das. (2025). **POSTER: A Multi-Signal Model for Detecting Evasive Smishing**. *18th ACM Conference on Security and Privacy in Wireless and Mobile Networks (WiSec 2025)*, 292-293. [DOI: 10.1145/3734477.3736147](https://doi.org/10.1145/3734477.3736147)
+
+### Agarwal et al. (2025)
+> Agarwal, A. et al. (2025). **Fishing for Smishing: Understanding SMS Phishing Infrastructure and Strategies by Mining Public User Reports**. *IMC '25: ACM Internet Measurement Conference*. [DOI: 10.1145/3730567.3764431](https://doi.org/10.1145/3730567.3764431)
+
+### NUS SMS Corpus
+> Chen, Tao, and Min-Yen Kan. (2013). **Creating a Live, Public Short Message Service Corpus: The NUS SMS Corpus**. *Language Resources and Evaluation*, 47(2), 299-335. [DOI: 10.1007/s10579-012-9197-9](https://doi.org/10.1007/s10579-012-9197-9)
+
+### Kaggle Spam/Ham Dataset
+> Kumar, T. (n.d.). **SMS Spam Dataset**. *Kaggle*. Available at: [https://www.kaggle.com/datasets/tinu10kumar/sms-spam-dataset](https://www.kaggle.com/datasets/tinu10kumar/sms-spam-dataset)
+
+### Kaggle Phishing Dataset
+> Tijjani, A. (n.d.). **Phishing Email & SMS Dataset with NLP Categories**. *Kaggle*. Available at: [https://www.kaggle.com/datasets/ahmadtijjani/phishing-email-sms-dataset-with-nlp-categories](https://www.kaggle.com/datasets/ahmadtijjani/phishing-email-sms-dataset-with-nlp-categories)
