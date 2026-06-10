@@ -63,39 +63,25 @@ def main() -> None:
     print(summary)
     summary.to_csv(out_dir / "datasets_summary.csv")
 
+    completed_set = set()
+    results_file = out_dir / "results.csv"
+    cm_file = out_dir / "confusion_matrices.csv"
+
+    if results_file.exists():
+        try:
+            df_prev = pd.read_csv(results_file)
+            for _, row in df_prev.iterrows():
+                completed_set.add((row["dataset"], row["encoder"], row["classifier"]))
+            print(f">> Found existing results.csv. Skipping {len(completed_set)} completed fits.")
+        except Exception as e:
+            print(f"!! Failed to read existing results.csv: {e}")
+
     print(
         f">> Launching grid: {len(splits)} datasets x "
         f"{len(args.encoders)} encoders x {len(args.classifiers)} classifiers = "
         f"{len(splits) * len(args.encoders) * len(args.classifiers)} fits.",
         flush=True,
     )
-
-    df_results, conf_mats = run_grid(
-        splits=splits,
-        encoders=args.encoders,
-        classifiers=args.classifiers,
-        verbose=not args.quiet,
-    )
-
-    df_results.to_csv(out_dir / "results.csv", index=False)
-    print(f">> Saved results.csv with {len(df_results)} rows", flush=True)
-
-    df_agg = aggregate(df_results)
-    df_agg.to_csv(out_dir / "summary.csv", index=False)
-
-    cm_records: list[dict] = []
-    for (dataset, enc, clf), cm in conf_mats.items():
-        for i, true_lbl in enumerate(CLASS_ORDER):
-            for j, pred_lbl in enumerate(CLASS_ORDER):
-                cm_records.append({
-                    "dataset": dataset,
-                    "encoder": enc,
-                    "classifier": clf,
-                    "true_label": true_lbl,
-                    "predicted_label": pred_lbl,
-                    "count": int(cm[i, j]),
-                })
-    pd.DataFrame(cm_records).to_csv(out_dir / "confusion_matrices.csv", index=False)
 
     meta = {
         "split": "80/10/10",
@@ -107,10 +93,43 @@ def main() -> None:
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-    print(">> Final summary (top-3 per dataset by test_macro_f1):", flush=True)
-    for ds_name, sub in df_agg.groupby("dataset"):
-        print(f"\n=== {ds_name} ===")
-        print(sub.head(3).to_string(index=False))
+    for res, cm in run_grid(
+        splits=splits,
+        encoders=args.encoders,
+        classifiers=args.classifiers,
+        verbose=not args.quiet,
+        completed=completed_set,
+    ):
+        # Save result
+        df_res = pd.DataFrame([res.__dict__])
+        df_res.to_csv(results_file, mode="a", index=False, header=not results_file.exists())
+        
+        # Save CM
+        cm_records = []
+        for i, true_lbl in enumerate(CLASS_ORDER):
+            for j, pred_lbl in enumerate(CLASS_ORDER):
+                cm_records.append({
+                    "dataset": res.dataset,
+                    "encoder": res.encoder,
+                    "classifier": res.classifier,
+                    "true_label": true_lbl,
+                    "predicted_label": pred_lbl,
+                    "count": int(cm[i, j]),
+                })
+        df_cm = pd.DataFrame(cm_records)
+        df_cm.to_csv(cm_file, mode="a", index=False, header=not cm_file.exists())
+
+    print(f">> Grid finished.", flush=True)
+
+    if results_file.exists():
+        df_results = pd.read_csv(results_file)
+        df_agg = aggregate(df_results)
+        df_agg.to_csv(out_dir / "summary.csv", index=False)
+
+        print(">> Final summary (top-3 per dataset by test_macro_f1):", flush=True)
+        for ds_name, sub in df_agg.groupby("dataset"):
+            print(f"\n=== {ds_name} ===")
+            print(sub.head(3).to_string(index=False))
 
 
 if __name__ == "__main__":

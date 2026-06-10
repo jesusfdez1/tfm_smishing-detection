@@ -57,7 +57,7 @@ def main():
 
     # 3. Filter Sources
     if args.sources:
-        df = df[df["source"].isin(args.sources)]
+        df = df[df["reference"].isin(args.sources)]
         print(f"Filtered by sources {args.sources}. Remaining: {len(df)}")
 
     # 4. Filter AI

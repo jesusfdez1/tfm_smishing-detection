@@ -13,14 +13,14 @@ The meta-dataset is dynamically aggregated from **13 independent, heterogeneous 
 | 1 | ExAIS SMS Spam | 5,240 | 2 (Spam, Ham) | CSV | [Onashoga et al. (2015)](#6-academic-references) |
 | 2 | Mishra & Soni 2022 | 5,971 | 3 (Ham, Spam, Smishing) | CSV | [Mishra & Soni (2022)](#6-academic-references) |
 | 3 | Mishra Extended | 10,191 | 3 (Ham, Spam, Smishing) | CSV | [Mishra & Soni (2022)](#6-academic-references) |
-| 4 | Hosseinpour 2025 | — | 3 (Ham, Spam, Smishing) | CSV | [Hosseinpour & Das (2025)](#6-academic-references) |
-| 5 | Agarwal IMC 2025 | — | 1 (Smishing) | CSV | [Agarwal et al. (2025)](#6-academic-references) |
+| 4 | Hosseinpour 2025 | 84,863 | 3 (Ham, Spam, Smishing) | CSV | [Hosseinpour & Das (2025)](#6-academic-references) |
+| 5 | Agarwal IMC 2025 | 33,869 | 1 (Smishing) | CSV | [Agarwal et al. (2025)](#6-academic-references) |
 | 6 | UCI SMS Spam | 5,574 | 2 (Ham, Spam) | TSV | [UCI](https://archive.ics.uci.edu/dataset/228/sms+spam+collection) |
-| 7 | NUS SMS Corpus | ~67,000 | 1 (Ham) | JSON | [Chen & Kan (2013)](#6-academic-references) |
-| 8 | Kaggle Spam/Ham | ~10,800 | 2 (Spam, Ham) | CSV | [Kumar (Kaggle)](#6-academic-references) |
-| 9 | Kaggle Phishing | 1,001 | 1 (Smishing) | CSV | [Tijjani (Kaggle)](#6-academic-references) |
+| 7 | NUS SMS Corpus | 55,835 | 1 (Ham) | JSON | [Chen & Kan (2013)](#6-academic-references) |
+| 8 | Kaggle Spam/Ham | 10,961 | 2 (Spam, Ham) | CSV | [Kumar (Kaggle)](#6-academic-references) |
+| 9 | Kaggle Phishing | 1,000 | 1 (Smishing) | CSV | [Tijjani (Kaggle)](#6-academic-references) |
 | 10 | Malicious-Benign SMS/MMS | ~383,000 (Non-AI) | 2 (Benign, Spam) | CSV | [HuggingFace](https://huggingface.co/datasets/notd5a/malicious-benign-sms-mms-dataset) |
-| 11 | Spanish Spam/Ham | 1,209 | 2 (Spam, Ham) | CSV | [HuggingFace](https://huggingface.co/datasets/softecapps/spam_ham_spanish) |
+| 11 | Spanish Spam/Ham | 1,207 | 2 (Spam, Ham) | CSV | [HuggingFace](https://huggingface.co/datasets/softecapps/spam_ham_spanish) |
 | 12 | Smishing-4C | 120 | 4 Thematic Cats. | CSV | [Martínez-Mendoza et al. (2024)](#6-academic-references) |
 | 13 | MIMICS-3500 | 3,500 | 7 / 13 Classes | CSV | [Martínez-Mendoza et al. (2026)](#6-academic-references) |
 

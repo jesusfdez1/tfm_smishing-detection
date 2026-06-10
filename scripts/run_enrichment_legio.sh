@@ -40,7 +40,7 @@ mkdir -p $HF_HOME
 
 echo "Ensuring required dependencies are installed..."
 python -m pip install -r requirements.txt --quiet
-python -m pip install accelerate "transformers>=4.48.0" torchvision pillow python-whois ninja --quiet
+python -m pip install accelerate "transformers>=4.48.0" torchvision pillow ninja --quiet
 
 # vLLM environment variables
 export VLLM_USE_FLASHINFER=0

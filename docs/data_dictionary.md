@@ -1,6 +1,6 @@
 # Diccionario de Datos del Meta-Dataset SMS
 
-Este documento proporciona la descripción formal de todas las variables, categorías y esquemas de codificación que conforman el meta-dataset final `metasms_hss_master.csv`. Toda la información contenida en el dataset obedece a las siguientes reglas estandarizadas y diccionarios de datos.
+Este documento proporciona la descripción formal de todas las variables, categorías y esquemas de codificación que conforman el meta-dataset final `metasms_v1_enriched.csv`. Toda la información contenida en el dataset obedece a las siguientes reglas estandarizadas y diccionarios de datos.
 
 ## Estructura General de las Columnas
 
@@ -68,7 +68,7 @@ Indica de qué dataset original proviene la fila. Valores posibles extraídos en
 - `mishra_soni_2022`
 - `nus_sms`
 - `smishing_4c`
-- `smishtank`
+- `mimics_3500`
 - `spanish_spam_ham`
 - `uci_sms_spam`
 
@@ -115,15 +115,16 @@ Para ilustrar cómo se engrana todo este diccionario en una fila real del CSV fi
 
 | Columna | Valor de Ejemplo | Explicación basada en los Diccionarios |
 |---------|------------------|----------------------------------------|
-| `message_id` | `msg_8f9a2b1c4e5d` | Hash único generado por el script en la fase 1. |
+| `message_id` | `msg_1b83648c69bd` | Identificador hexadecimal único (UUID v4 aleatorio) asignado a la muestra. |
 | `canonical_label` | `smishing` | Categoría unificada (ataque de phishing vía SMS). |
 | `text_raw` | `Banco Santander: Su tarjeta ha sido limitada. Para reactivarla visite http://bit.ly/sant-phish` | Texto original en bruto recibido directamente de la fuente. |
 | `text` | `Banco Santander: Su tarjeta ha sido limitada. Para reactivarla visite http://bit.ly/sant-phish` | Texto normalizado (en este ejemplo no contenía marcas de ofuscación). |
 | `text_anonymized` | `Banco Santander: Su tarjeta ha sido limitada. Para reactivarla visite <URL>` | Texto tras enmascarar la URL maliciosa por la meta-marca unificada `<URL>`. |
-| `reference` | `smishtank` | Proviene del repositorio web de SmishTank. |
-| `source_id` | `102394` | ID de la sumisión original en la base de datos de SmishTank. |
-| `original_label` | `unlabeled (raw submission)` | En el JSON original no venía etiquetado como validado por la comunidad. |
-| `label_mapping_rule` | `unlabeled->smishing (LLM Inference)` | El LLM dedujo la etiqueta al carecer de una en la fase 2. |
+| `reference` | `mimics_3500` | Proviene del repositorio web de origen. |
+| `source_id` | `102394` | ID de la sumisión original en la base de datos de origen. |
+| `original_label` | `7class=...;13class=...;dataset=...` | Etiqueta interna compleja que traía el dataset original. |
+| `label_mapping_rule` | `implicit_smishing` | Regla determinista aplicada en el módulo de Python (mimics es 100% smishing). |
+| `is_ai_generated` | `0` | Indica que el mensaje no fue generado por una Inteligencia Artificial (es orgánico). |
 | `timestamp_original` | | No constaba la hora original en el dataset de origen. |
 | `license` | `Academic Use Only` | Condición de uso estipulada por la fuente original. |
 | `language` | `es` | Idioma español ISO 639-1 (Detectado por el motor FastText). |
@@ -131,7 +132,7 @@ Para ilustrar cómo se engrana todo este diccionario en una fila real del CSV fi
 | `anonymization_status` | `anonymized` | Nuestro script aplicó Regex en fase 1 para limpiar PII. |
 | `llm_model` | `Qwen/Qwen3.5-35B-A3B-GPTQ-Int4` | Modelo local de Hugging Face y vLLM utilizado para enriquecer este mensaje. |
 | `prompt_version` | `v1.0-local` | Versión interna del script que construye los prompts de anotación. |
-| `llm_annotation_date` | `2026-05-28T21:50:00Z` | Fecha ISO en la que el LLM nos devolvió el resultado. |
+| `llm_annotation_date` | `2026-05-28` | Fecha en la que el LLM nos devolvió el resultado. |
 | **`theme`** | `banking` | Encaja exactamente en la taxonomía bancaria. |
 | **`urgency_level`** | `high` | Nivel máximo de urgencia por amenaza explícita de limitación de tarjeta. |
 | **`whois_domain`** | `bit.ly` | Dominio extraído de la URL. |

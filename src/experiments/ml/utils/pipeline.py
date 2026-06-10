@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Iterator
 
 import numpy as np
 import pandas as pd
@@ -140,21 +140,25 @@ def run_grid(
     classifiers: Iterable[str] = CLASSIFIER_NAMES,
     seed: int = SEED,
     verbose: bool = True,
-) -> tuple[pd.DataFrame, dict]:
+    completed: set[tuple[str, str, str]] | None = None,
+) -> Iterator[tuple[EvalResult, np.ndarray]]:
     """Executes the complete evaluation grid with 80/10/10 Hold-Out.
-
-    Returns:
-    - `pd.DataFrame`: Detailed results of each iteration (dataset, encoder, classifier).
-    - `dict`: Mapping of each combination to its respective confusion matrix on the test set.
+    Yields (EvalResult, confusion_matrix) on the fly for checkpointing.
     """
-    results: list[EvalResult] = []
-    confusion: dict[tuple[str, str, str], np.ndarray] = {}
+    if completed is None:
+        completed = set()
 
     for ds_key, sp in splits.items():
         texts = sp.texts
         labels = np.array(sp.labels)
         full_corpus = list(texts)
         cache_key = f"{ds_key}_{_hash_corpus(full_corpus)}"
+
+        # Check if entire dataset is completed
+        if all((sp.name, enc, clf) in completed for enc in encoders for clf in classifiers):
+            if verbose:
+                print(f"Skipping dataset {sp.name} (all combinations already done)", flush=True)
+            continue
 
         # Split 80/10/10
         # 1. Split 80% train / 20% temp
@@ -167,9 +171,20 @@ def run_grid(
         )
 
         for enc_name in encoders:
+            # check if ALL classifiers for this encoder are already completed
+            if all((sp.name, enc_name, clf_name) in completed for clf_name in classifiers):
+                if verbose:
+                    print(f"Skipping encoder {enc_name} on {sp.name} (all classifiers already done)", flush=True)
+                continue
+
             minilm_corpus = (full_corpus, cache_key) if enc_name == "minilm" else None
 
             for clf_name in classifiers:
+                if (sp.name, enc_name, clf_name) in completed:
+                    if verbose:
+                        print(f"Skipping {sp.name} {enc_name} × {clf_name} (already done)", flush=True)
+                    continue
+
                 if verbose:
                     print(
                         f"[{sp.name}] {enc_name} × {clf_name} "
@@ -189,11 +204,7 @@ def run_grid(
                     minilm_corpus=minilm_corpus,
                 )
                 res.dataset = sp.name
-                results.append(res)
-                confusion[(sp.name, enc_name, clf_name)] = cm
-
-    df = pd.DataFrame([r.__dict__ for r in results])
-    return df, confusion
+                yield res, cm
 
 
 def aggregate(df: pd.DataFrame) -> pd.DataFrame:

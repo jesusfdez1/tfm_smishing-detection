@@ -38,12 +38,7 @@ MASTER_FIELDS = [
     "text",
     
     # 2. Provenance (Origin & Traceability)
-    "reference",
-    "source_id",
-    "original_label",
-    "label_mapping_rule",
-    "timestamp_original",
-    "license",
+    "reference", "source_id", "original_label", "label_mapping_rule", "timestamp_original", "license", "is_ai_generated",
     
     # 3. Processing Metadata
     "language",
@@ -483,6 +478,7 @@ def build_master_rows(
             "label_mapping_rule": str(label_mapping_rule).lower().strip() if label_mapping_rule else "",
             "timestamp_original": normalize_timestamp(raw.get("timestamp_original")),
             "license": str(raw.get("license") or "unknown").lower().strip(),
+            "is_ai_generated": "1" if raw.get("is_ai_generated") else "0",
             "language": language,
             "language_confidence": f"{language_confidence:.2f}" if language_confidence else "",
             "obfuscation_tags": ",".join(tags) if tags else "",
@@ -1124,18 +1120,12 @@ if __name__ == "__main__":
     parser.add_argument("--no-dedupe", action="store_true", help="Disable cross-dataset deduplication")
     parser.add_argument("--resume", action="store_true", help="Resume from previous partial run")
     parser.add_argument("--checkpoint-every", type=int, default=10000, help="Checkpoint every N rows per source")
-    parser.add_argument(
-        "--include-ai-generated",
-        action="store_true",
-        default=False,
-        help=(
-            "Include AI-generated messages in the output dataset. "
-            "By default they are excluded to avoid synthetic bias in training."
-        ),
+    parser.add_argument("--keep-ai-generated", action="store_true",
+        help="Keep AI generated rows. By default they are excluded to avoid synthetic bias in training."
     )
 
     args = parser.parse_args()
-    exclude_ai = not args.include_ai_generated
+    exclude_ai = not args.keep_ai_generated
 
     output_csv = Path(args.output) if args.output else build_output_name(
         output_dir=Path("data/processed"),
