@@ -9,7 +9,7 @@ The schema returned in the Splits objects includes:
     source = "metasms"
 
 `text_norm` is the normalized version used as input for the statistical 
-and embedding encoders (BoW, TF-IDF, Word2Vec, FastText, MiniLM).
+and embedding encoders (BoW, TF-IDF, Word2Vec, FastText).
 """
 
 from __future__ import annotations

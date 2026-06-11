@@ -39,3 +39,10 @@ experiments/results/logs/*
 .env.local
 .state.json
 *.hashes.txt
+
+# Quarto
+.quarto/
+_site/
+_book/
+*_files/
+*_cache/

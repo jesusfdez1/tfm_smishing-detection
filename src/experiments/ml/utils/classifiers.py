@@ -1,10 +1,9 @@
 """Classifiers for Machine Learning experiments.
 
-Exposes five classifiers with the same scikit-learn fit/predict interface:
+Exposes four classifiers with the same scikit-learn fit/predict interface:
 - Naive Bayes (MultinomialNB for sparse input, GaussianNB for dense input).
 - Logistic Regression.
 - Random Forest.
-- XGBoost.
 - Support Vector Machine (LinearSVC).
 
 `make_classifier(name, dense)` selects the correct and pre-configured variant
@@ -15,7 +14,7 @@ by default to handle the natural imbalance between ham and smishing.
 from __future__ import annotations
 
 
-CLASSIFIER_NAMES = ["nb", "logreg", "rf", "xgb", "svm"]
+CLASSIFIER_NAMES = ["nb", "logreg", "rf", "svm"]
 
 
 def _make_nb(dense: bool):
@@ -51,21 +50,6 @@ def _make_rf():
     )
 
 
-def _make_xgb():
-    from xgboost import XGBClassifier
-
-    return XGBClassifier(
-        n_estimators=300,
-        max_depth=6,
-        learning_rate=0.1,
-        subsample=0.9,
-        colsample_bytree=0.9,
-        tree_method="hist",
-        n_jobs=-1,
-        eval_metric="mlogloss",
-        random_state=42,
-    )
-
 def _make_svm():
     from sklearn.svm import LinearSVC
 
@@ -87,8 +71,7 @@ def make_classifier(name: str, dense: bool) -> Any:
         return _make_logreg()
     if name == "rf":
         return _make_rf()
-    if name == "xgb":
-        return _make_xgb()
+
     if name == "svm":
         return _make_svm()
     raise ValueError(f"Unknown classifier: {name}")

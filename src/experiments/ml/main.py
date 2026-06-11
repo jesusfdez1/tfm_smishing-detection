@@ -11,8 +11,8 @@ Typical usage from the project root:
 
 Relevant arguments:
     --datasets    Subset of datasets to evaluate (default: metasms).
-    --encoders    Subset of encoders (default: bow tfidf w2v fasttext minilm).
-    --classifiers Subset of classifiers (default: nb logreg rf xgb svm).
+    --encoders    Subset of encoders (default: bow tfidf w2v fasttext).
+    --classifiers Subset of classifiers (default: nb logreg rf svm).
 """
 
 from __future__ import annotations
@@ -21,6 +21,8 @@ import argparse
 import json
 from pathlib import Path
 
+# FIX: Import torch before pandas/gensim to avoid DLL conflicts on Windows
+import torch
 import pandas as pd
 
 from src.experiments.ml.utils.classifiers import CLASSIFIER_NAMES
@@ -30,7 +32,7 @@ from src.experiments.ml.utils.pipeline import aggregate, run_grid
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="ML Pipeline 5x5 with 80/10/10 Hold-out")
+    p = argparse.ArgumentParser(description="ML Pipeline 4x4 with 80/10/10 Hold-out")
     p.add_argument("--data_root", type=str, default="data/processed")
     p.add_argument("--out_dir", type=str, default="output/ml")
     p.add_argument("--datasets", nargs="+", default=["metasms"])

@@ -4,7 +4,7 @@ Exposes four encoders with the same fit/transform interface:
 - Bag of Words (CountVectorizer)
 - TF-IDF (TfidfVectorizer)
 - Word2Vec (gensim CBOW, trained on the corpus, mean-pooling)
-- Sentence-Transformers (all-MiniLM-L6-v2, mean-pooling from the API itself)
+- FastText (gensim CBOW, trained on the corpus, mean-pooling)
 
 Pre-trained dense encoders cache their output in `data/cache/` to avoid
 recalculating expensive embeddings between reruns.
@@ -211,77 +211,6 @@ class FastTextEncoder:
         return out
 
 
-# ---------- Sentence-Transformers (MiniLM) ----------
-
-
-class MiniLMEncoder:
-    """Dense embeddings with `sentence-transformers/all-MiniLM-L6-v2`.
-
-    Does not need to be trained: it is a pre-trained and frozen model. Therefore
-    we can cache its embeddings on the full corpus of the dataset and
-    reuse them efficiently (no data leakage).
-    """
-
-    name = "MiniLM"
-    output = "dense"
-
-    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", batch_size: int = 64):
-        self.model_name = model_name
-        self.batch_size = batch_size
-        self._cache_full: np.ndarray | None = None
-        self._cache_index: dict[str, int] = {}
-
-    def _build_cache(self, texts: Sequence[str], cache_key: str | None) -> None:
-        """Encodes all texts once and builds a text->row index."""
-        if cache_key is not None:
-            cache_file = CACHE_DIR / f"minilm_{cache_key}.npy"
-        else:
-            cache_file = None
-
-        if cache_file is not None and cache_file.exists():
-            self._cache_full = np.load(cache_file)
-        else:
-            from sentence_transformers import SentenceTransformer
-
-            model = SentenceTransformer(self.model_name)
-            self._cache_full = model.encode(
-                list(texts),
-                batch_size=self.batch_size,
-                convert_to_numpy=True,
-                show_progress_bar=True,
-                normalize_embeddings=True,
-            ).astype(np.float32)
-            if cache_file is not None:
-                np.save(cache_file, self._cache_full)
-
-        self._cache_index = {}
-        for i, t in enumerate(texts):
-            self._cache_index.setdefault(t, i)
-
-    def precompute(self, texts: Sequence[str], cache_key: str) -> None:
-        """Pre-computes the full corpus of the dataset (idempotent with cache)."""
-        if self._cache_full is None or len(self._cache_full) != len(texts):
-            self._build_cache(texts, cache_key)
-
-    def fit_transform(self, texts: Sequence[str]) -> np.ndarray:
-        return self.transform(texts)
-
-    def transform(self, texts: Sequence[str]) -> np.ndarray:
-        if self._cache_full is None:
-            raise RuntimeError("Call precompute(...) before transform()")
-        missing = [t for t in texts if t not in self._cache_index]
-        if missing:
-            ex = missing[0]
-            ex_show = (ex[:80] + "…") if len(ex) > 80 else ex
-            raise KeyError(
-                "MiniLM: there are texts not present in the corpus passed to precompute(); "
-                "the cache uses exact string matching. "
-                f"Example ({len(missing)} not found): {ex_show!r}"
-            )
-        rows = [self._cache_index[t] for t in texts]
-        return self._cache_full[rows]
-
-
 # ---------- Registry ----------
 
 
@@ -296,8 +225,6 @@ def make_encoder(name: str) -> Any:
         return Word2VecEncoder()
     if name in ("fasttext", "ft"):
         return FastTextEncoder()
-    if name in ("minilm", "st", "sbert"):
-        return MiniLMEncoder()
     raise ValueError(f"Unknown encoder: {name}")
 
 

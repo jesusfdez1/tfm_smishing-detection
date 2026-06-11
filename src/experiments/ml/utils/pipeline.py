@@ -27,7 +27,7 @@ from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 
 from src.experiments.ml.utils.classifiers import CLASSIFIER_NAMES, make_classifier
 from src.experiments.ml.utils.data import CLASS_ORDER, Splits
-from src.experiments.ml.utils.encoders import ENCODER_NAMES, MiniLMEncoder, make_encoder, _hash_corpus
+from src.experiments.ml.utils.encoders import ENCODER_NAMES, make_encoder, _hash_corpus
 
 
 SEED = 42
@@ -61,16 +61,9 @@ def _evaluate_one(
     y_val: list[str],
     X_test: list[str],
     y_test: list[str],
-    minilm_corpus: tuple[list[str], str] | None,
 ) -> tuple[EvalResult, np.ndarray]:
     """Executes a single fit + predict (on val and test) and returns metrics."""
     encoder = make_encoder(encoder_name)
-
-    if isinstance(encoder, MiniLMEncoder):
-        if minilm_corpus is None:
-            raise RuntimeError("MiniLM requires `minilm_corpus`")
-        full_texts, cache_key = minilm_corpus
-        encoder.precompute(full_texts, cache_key=cache_key)
 
     t0 = time.perf_counter()
     X_train_encoded = encoder.fit_transform(X_train)
@@ -177,7 +170,7 @@ def run_grid(
                     print(f"Skipping encoder {enc_name} on {sp.name} (all classifiers already done)", flush=True)
                 continue
 
-            minilm_corpus = (full_corpus, cache_key) if enc_name == "minilm" else None
+
 
             for clf_name in classifiers:
                 if (sp.name, enc_name, clf_name) in completed:
@@ -201,7 +194,6 @@ def run_grid(
                     y_val=y_val.tolist(),
                     X_test=X_test,
                     y_test=y_test.tolist(),
-                    minilm_corpus=minilm_corpus,
                 )
                 res.dataset = sp.name
                 yield res, cm

@@ -64,7 +64,7 @@ python src/dataset/enrich_metadataset.py --input data/processed/metasms_hss_mast
 
 ### 3.2. Machine Learning Framework (Experimentation)
 
-The ML framework is designed to execute a comprehensive evaluation grid combining multiple text encoders (BoW, TF-IDF, Word2Vec, FastText, MiniLM) and traditional classifiers (Naive Bayes, Logistic Regression, Random Forest, XGBoost, SVM) on the consolidated MetaSMS dataset using a stratified 80/10/10 split.
+The ML framework is designed to execute a comprehensive evaluation grid combining multiple text encoders (BoW, TF-IDF, Word2Vec, FastText) and traditional classifiers (Naive Bayes, Logistic Regression, Random Forest, SVM) on the consolidated MetaSMS dataset using a stratified 80/10/10 split.
 
 ```bash
 # Execute the full machine learning evaluation grid
