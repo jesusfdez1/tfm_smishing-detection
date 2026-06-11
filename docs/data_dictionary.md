@@ -15,6 +15,7 @@ Este documento proporciona la descripción formal de todas las variables, catego
 | **`source_id`** | ID original del mensaje en su dataset de origen. | `String` o Vacío |
 | **`original_label`** | La etiqueta original que tenía el mensaje en su origen. | `String` |
 | **`label_mapping_rule`** | Regla aplicada para transformar la etiqueta original. | `String` |
+| **`is_ai_generated`** | Indica si el mensaje ha sido generado sintéticamente por Inteligencia Artificial (0 o 1). | `Booleano (0 o 1)` |
 | **`timestamp_original`** | Fecha y hora original del mensaje (si estaba disponible). | `String (ISO 8601)` o Vacío |
 | **`license`** | Licencia de uso del mensaje/dataset original. | `String` |
 | **`language`** | Idioma principal detectado. | `Categoría` (Ver sección 5) |
@@ -25,11 +26,11 @@ Este documento proporciona la descripción formal de todas las variables, catego
 | **`llm_annotation_date`** | Fecha en la que el LLM procesó esta fila. | `String (ISO 8601)` |
 | **`theme`** | Categoría o intención principal del mensaje. | `Categoría` (Ver sección 6) |
 | **`urgency_level`** | Nivel de urgencia que transmite el mensaje. | `Categoría` (Ver sección 7) |
-| **`whois_domain`** | Dominio extraído del enlace (si existe) tras la resolución de Whois. | `String` (o `"ERROR"`) |
-| **`whois_tld`** | Dominio de nivel superior (Top Level Domain) extraído del dominio. | `String` (o `"ERROR"`) |
-| **`whois_age_days`** | Edad en días del dominio extraída mediante Whois. | `Integer` |
-| **`whois_hidden`** | Indica si los detalles de Whois del dominio están ocultos/privados (1 o 0). | `Booleano (0 o 1)` |
-| **`whois_country`** | País de registro del dominio obtenido vía Whois. | `String` |
+| **`whois_domain`** | Dominio extraído del enlace (si existe) tras la resolución de Whois. | `String` (o `"ERROR"`) o Vacío |
+| **`whois_tld`** | Dominio de nivel superior (Top Level Domain) extraído del dominio. | `String` (o `"ERROR"`) o Vacío |
+| **`whois_age_days`** | Edad en días del dominio extraída mediante Whois. | `Integer` o Vacío |
+| **`whois_hidden`** | Indica si los detalles de Whois del dominio están ocultos/privados (1 o 0). | `Booleano (0 o 1)` o Vacío |
+| **`whois_country`** | País de registro del dominio obtenido vía Whois. | `String` o Vacío |
 
 ---
 
@@ -40,7 +41,7 @@ Varias columnas utilizan formato booleano estandarizado con valores enteros (0 y
 - **`0`**: Falso (No aplica)
 - **`1`**: Verdadero (Sí aplica)
 
-*Aplica a las columnas: `whois_hidden` (si se considera booleana).*
+*Aplica a las columnas: `whois_hidden`, `is_ai_generated`.*
 
 ### 2. `anonymization_status`
 Define qué tipo de procesamiento de privacidad ha recibido el mensaje:
@@ -62,13 +63,11 @@ Indica de qué dataset original proviene la fila. Valores posibles extraídos en
 - `kaggle_phishing`
 - `kaggle_spam_ham`
 - `malicious_benign_sms_mms`
-- `malicious_benign_synthetic`
 - `mimics_3500`
 - `mishra_extended`
 - `mishra_soni_2022`
 - `nus_sms`
 - `smishing_4c`
-- `mimics_3500`
 - `spanish_spam_ham`
 - `uci_sms_spam`
 
@@ -128,7 +127,7 @@ Para ilustrar cómo se engrana todo este diccionario en una fila real del CSV fi
 | `timestamp_original` | | No constaba la hora original en el dataset de origen. |
 | `license` | `Academic Use Only` | Condición de uso estipulada por la fuente original. |
 | `language` | `es` | Idioma español ISO 639-1 (Detectado por el motor FastText). |
-| `language_confidence` | `0.998` | 99.8% de confianza del modelo detector de lenguaje. |
+| `language_confidence` | `1.00` | 100% de confianza del modelo detector de lenguaje. |
 | `anonymization_status` | `anonymized` | Nuestro script aplicó Regex en fase 1 para limpiar PII. |
 | `llm_model` | `Qwen/Qwen3.5-35B-A3B-GPTQ-Int4` | Modelo local de Hugging Face y vLLM utilizado para enriquecer este mensaje. |
 | `prompt_version` | `v1.0-local` | Versión interna del script que construye los prompts de anotación. |

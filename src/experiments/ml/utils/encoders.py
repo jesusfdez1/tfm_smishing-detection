@@ -301,4 +301,4 @@ def make_encoder(name: str) -> Any:
     raise ValueError(f"Unknown encoder: {name}")
 
 
-ENCODER_NAMES = ["bow", "tfidf", "w2v", "fasttext", "minilm"]
+ENCODER_NAMES = ["bow", "tfidf", "w2v", "fasttext"]

@@ -46,11 +46,14 @@ tfm_smishing-detection/
 
 ### 3.1. Data Engineering (Dataset Construction)
 
-The data pipeline handles structural normalization, language detection (Meta's FastText network), privacy preservation (anonymization), and heuristic deduplication (SHA-256 hash matching).
+The data pipeline handles structural normalization, language detection (Meta's FastText network), privacy preservation (anonymization), and heuristic deduplication (SHA-256 hash matching). By default, the pipeline also automatically filters out any synthetic or AI-generated messages to prevent synthetic bias in training models.
 
 ```bash
-# Standard complete build
+# Standard complete build (automatically excludes AI-generated messages)
 python src/dataset/build_metadataset.py --output data/processed/metasms_hss_master.csv
+
+# Standard complete build KEEPING AI-generated messages
+python src/dataset/build_metadataset.py --keep-ai-generated --output data/processed/metasms_hss_master.csv
 
 # Build featuring advanced PII redaction via privacy-filter
 python src/dataset/build_metadataset.py --privacy-filter --output data/processed/metasms_hss_master_privacy.csv

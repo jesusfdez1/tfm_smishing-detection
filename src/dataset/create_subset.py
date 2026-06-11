@@ -61,11 +61,16 @@ def main():
         print(f"Filtered by sources {args.sources}. Remaining: {len(df)}")
 
     # 4. Filter AI
+    has_ai_col = "is_ai_generated" in df.columns
     if args.exclude_ai:
-        df = df[df.get("is_ai_generated", 0) == 0]
+        if has_ai_col:
+            df = df[df["is_ai_generated"] == 0]
         print(f"Excluded AI generated. Remaining: {len(df)}")
     elif args.only_ai:
-        df = df[df.get("is_ai_generated", 0) == 1]
+        if has_ai_col:
+            df = df[df["is_ai_generated"] == 1]
+        else:
+            df = df.iloc[0:0] # Ninguno es AI si la columna no existe
         print(f"Kept ONLY AI generated. Remaining: {len(df)}")
 
     # 5. Filter Length
