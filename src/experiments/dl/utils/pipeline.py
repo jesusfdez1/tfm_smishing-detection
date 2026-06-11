@@ -134,9 +134,21 @@ def run_slm_evaluation(
         callbacks=[EarlyStoppingCallback(early_stopping_patience=2)]
     )
 
+    from transformers.trainer_utils import get_last_checkpoint
+    import os
+    
+    last_checkpoint = None
+    if os.path.isdir(training_args.output_dir):
+        last_checkpoint = get_last_checkpoint(training_args.output_dir)
+        if last_checkpoint is not None:
+            print(f"[{model_name}] Resumiendo entrenamiento desde checkpoint: {last_checkpoint}", flush=True)
+
     # Train
     t0 = time.perf_counter()
-    trainer.train()
+    if last_checkpoint is not None:
+        trainer.train(resume_from_checkpoint=last_checkpoint)
+    else:
+        trainer.train()
     fit_time = time.perf_counter() - t0
 
     # Evaluate on Validation (just to record final val metrics)
