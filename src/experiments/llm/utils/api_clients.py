@@ -75,7 +75,7 @@ class DeepSeekClient(OpenAIClient):
         )
 
 class GeminiClient(BaseLLMClient):
-    def __init__(self, model_name: str = "gemini-2.5-flash"):
+    def __init__(self, model_name: str = "gemini-2.0-flash"):
         super().__init__(model_name)
         self.api_key = os.environ.get("GEMINI_API_KEY")
         if not self.api_key:

@@ -36,7 +36,7 @@ def init_client(model_key: str):
     if model_key == "gpt":
         return OpenAIClient(model_name="gpt-4o-mini")
     elif model_key == "gemini":
-        return GeminiClient(model_name="gemini-2.5-flash")
+        return GeminiClient(model_name="gemini-2.0-flash")
     elif model_key == "deepseek":
         return DeepSeekClient(model_name="deepseek-chat")
     else:
