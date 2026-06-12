@@ -10,6 +10,7 @@ from typing import Any
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from datasets import Dataset
+from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
     TrainingArguments,
@@ -117,7 +118,6 @@ def run_slm_evaluation(
         weight_decay=0.01,
         load_best_model_at_end=True,
         metric_for_best_model="macro_f1",
-        logging_dir=f"{out_dir}/logs",
         logging_steps=50,
         disable_tqdm=True, # Disable progress bar so logs are clean in the .out file
         report_to="none" # Disable wandb/tensorboard to keep it simple
