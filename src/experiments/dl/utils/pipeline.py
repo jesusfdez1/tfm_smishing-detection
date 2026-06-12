@@ -122,6 +122,7 @@ def run_slm_evaluation(
         metric_for_best_model="macro_f1",
         logging_dir=f"{out_dir}/logs",
         logging_steps=50,
+        disable_tqdm=True, # Disable progress bar so logs are clean in the .out file
         report_to="none" # Disable wandb/tensorboard to keep it simple
     )
 
