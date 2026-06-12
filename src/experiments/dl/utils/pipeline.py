@@ -10,7 +10,6 @@ from typing import Any
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from datasets import Dataset
-from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
     TrainingArguments,
@@ -65,19 +64,12 @@ def run_slm_evaluation(
     batch_size: int = 16,
     epochs: int = 3,
     learning_rate: float = 2e-5,
-    out_dir: str = "output/dl/checkpoints",
-    smoke_test: bool = False
+    out_dir: str = "output/dl/checkpoints"
 ) -> dict[str, Any]:
     """
     Executes the training and evaluation of a single SLM.
     Uses the strict 80/10/10 stratified split to match the ML pipeline.
     """
-    if smoke_test:
-        # Reduce dataset aggressively for testing
-        print(f"!!! SMOKE TEST MODE FOR {model_name} !!!", flush=True)
-        texts = texts[:500]
-        labels = labels[:500]
-        epochs = 1
         
     # Split 80/10/10 (stratified) exactly like ML
     np_labels = np.array(labels)
@@ -95,7 +87,12 @@ def run_slm_evaluation(
     print(f"[{model_name}] Partitions -> Train: {len(X_train)} | Val: {len(X_val)} | Test: {len(X_test)}", flush=True)
 
     # Initialize Tokenizer and Model
-    tokenizer = AutoTokenizer.from_pretrained(hf_model_id)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(hf_model_id)
+    except Exception as e:
+        print(f"[{model_name}] Aviso: Falló el tokenizador rápido ({e}). Usando slow tokenizer...", flush=True)
+        tokenizer = AutoTokenizer.from_pretrained(hf_model_id, use_fast=False)
+        
     model = AutoModelForSequenceClassification.from_pretrained(
         hf_model_id,
         num_labels=len(CLASS_ORDER),
@@ -151,6 +148,11 @@ def run_slm_evaluation(
     else:
         trainer.train()
     fit_time = time.perf_counter() - t0
+
+    # Save the best model and tokenizer explicitly to the root model_name folder
+    print(f"[{model_name}] Guardando el mejor modelo en {training_args.output_dir}", flush=True)
+    trainer.save_model(training_args.output_dir)
+    tokenizer.save_pretrained(training_args.output_dir)
 
     # Evaluate on Validation (just to record final val metrics)
     val_results = trainer.evaluate(eval_dataset=val_ds)

@@ -46,3 +46,5 @@ _site/
 _book/
 *_files/
 *_cache/
+
+output/

@@ -62,10 +62,15 @@ class Splits:
 
     name: str
     df: pd.DataFrame
+    feature_type: str = "norm"
 
     @property
     def texts(self) -> list[str]:
-        return self.df["text_norm"].tolist()
+        target_col = f"text_{self.feature_type}"
+        if target_col not in self.df.columns:
+            # Fallback to norm if the requested feature is missing
+            target_col = "text_norm"
+        return self.df[target_col].tolist()
 
     @property
     def labels(self) -> list[str]:
@@ -80,40 +85,76 @@ class Splits:
         return {lbl: int(vc.loc[lbl]) for lbl in CLASS_ORDER}
 
 
-def _attach_norm(df: pd.DataFrame) -> pd.DataFrame:
+def _attach_norm(df: pd.DataFrame, source_col: str = "text") -> pd.DataFrame:
     df = df.copy()
-    df["text_norm"] = df["text"].astype(str).map(normalize_text)
-    df = df[df["text_norm"].str.len() > 0].copy()
+    df["text_norm"] = df[source_col].astype(str).map(normalize_text)
+    # Don't drop here, just let empty strings exist, we drop later globally
     return df
 
 
-def load_all_datasets(data_root: str | Path = "data/processed") -> dict[str, Splits]:
-    """Loads the 400k SMS dataset (MetaSMS) and prepares it for ML."""
-    root = Path(data_root)
-    path = root / "metasms_v1_privacy.csv"
+def load_all_datasets(data_root: str | Path = "data/processed", feature_type: str = "norm") -> dict[str, Splits]:
+    """Loads the 400k SMS dataset (MetaSMS) and prepares it for ML/DL.
     
+    Args:
+        data_root: Path to the processed data directory.
+        feature_type: Which text representation to use ('norm', 'raw', 'injected').
+    """
+    root = Path(data_root)
+    # Prefer the enriched dataset to support injected features, fallback to privacy
+    path = root / "metasms_v1_enriched.csv"
     if not path.exists():
-        path = root / "metasms_v1_enriched.csv"
+        path = root / "metasms_v1_privacy.csv"
         
     df = pd.read_csv(path, dtype=str)
     
-    # Ensure we have the text column to normalize and the canonical label
-    text_col = "text_anonymized" if "text_anonymized" in df.columns else "text"
-    df = df.dropna(subset=[text_col, "canonical_label"])
-    
-    # Filter to keep only valid classes
+    # Ensure we have the canonical label
+    df = df.dropna(subset=["canonical_label"])
     df = df[df["canonical_label"].isin(CLASS_ORDER)]
     
+    # Extract core columns safely
     out = pd.DataFrame({
-        "text": df[text_col].astype(str),
         "label": df["canonical_label"].astype(str).str.lower().str.strip(),
         "source": "metasms",
     })
     
-    out = _attach_norm(out)
+    # 1. Feature: Raw (un-anonymized)
+    if "text_raw" in df.columns:
+        out["text_raw"] = df["text_raw"].astype(str).fillna("")
+    else:
+        out["text_raw"] = df["text"].astype(str).fillna("") # Fallback
+        
+    # 2. Feature: Anonymized
+    if "text_anonymized" in df.columns:
+        out["text_anonymized"] = df["text_anonymized"].astype(str).fillna("")
+    else:
+        out["text_anonymized"] = out["text_raw"]
+        
+    # 3. Feature: Norm (normalized anonymized)
+    out = _attach_norm(out, source_col="text_anonymized")
+    
+    # 4. Feature: Injected (LLM metadata + normalized text)
+    if "urgency_level" in df.columns and "theme" in df.columns:
+        # Create injected representation: "[URGENCIA: Alta] [TEMA: Bancario] texto..."
+        urgency = df["urgency_level"].fillna("Desconocida").astype(str)
+        theme = df["theme"].fillna("General").astype(str)
+        
+        injected_texts = []
+        for urg, thm, txt in zip(urgency, theme, out["text_norm"]):
+            prefix = f"[URGENCIA: {urg}] [TEMA: {thm}]"
+            injected_texts.append(f"{prefix} {txt}")
+        out["text_injected"] = injected_texts
+    else:
+        # Fallback if metadata is missing
+        out["text_injected"] = out["text_norm"]
+
+    # Filter out empty messages
+    target_col = f"text_{feature_type}"
+    if target_col not in out.columns:
+        target_col = "text_norm"
+    out = out[out[target_col].str.len() > 0].copy()
     
     return {
-        "metasms": Splits("MetaSMS", out)
+        "metasms": Splits("MetaSMS", out, feature_type=feature_type)
     }
 
 
@@ -125,6 +166,7 @@ def summarize(splits: dict[str, Splits]) -> pd.DataFrame:
         dist = sp.class_distribution()
         rows.append({
             "Dataset": sp.name,
+            "Feature View": sp.feature_type,
             "Messages": sp.n,
             "Ham": dist.get("ham", 0),
             "Spam": dist.get("spam", 0),
@@ -134,5 +176,10 @@ def summarize(splits: dict[str, Splits]) -> pd.DataFrame:
 
 
 if __name__ == "__main__":  # quick smoke-test
-    splits = load_all_datasets()
-    print(summarize(splits))
+    print("Testing 'norm' view:")
+    splits_norm = load_all_datasets(feature_type="norm")
+    print(summarize(splits_norm))
+    
+    print("\nTesting 'injected' view:")
+    splits_inj = load_all_datasets(feature_type="injected")
+    print(summarize(splits_inj))

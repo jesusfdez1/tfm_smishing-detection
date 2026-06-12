@@ -5,7 +5,6 @@ using a strict 80/10/10 hold-out split on the MetaSMS dataset.
 
 Usage:
     python -m src.experiments.dl.main --models minilm beto
-    python -m src.experiments.dl.main --smoke_test
 """
 
 import argparse
@@ -25,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--batch_size", type=int, default=16, help="Batch size for training/eval")
     p.add_argument("--epochs", type=int, default=3, help="Max number of epochs")
     p.add_argument("--lr", type=float, default=2e-5, help="Learning rate")
-    p.add_argument("--smoke_test", action="store_true", help="Run a fast subset for testing")
+    p.add_argument("--feature_type", type=str, default="norm", choices=["norm", "raw", "anonymized", "injected"], help="Text representation to use")
     return p.parse_args()
 
 def main():
@@ -33,8 +32,8 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    print(">> Loading datasets for DL...", flush=True)
-    splits_all = load_all_datasets(args.data_root)
+    print(f">> Loading datasets for DL (Feature View: {args.feature_type})...", flush=True)
+    splits_all = load_all_datasets(args.data_root, feature_type=args.feature_type)
     metasms = splits_all.get("metasms")
     if not metasms:
         raise ValueError("MetaSMS dataset not found!")
@@ -60,15 +59,14 @@ def main():
         "models_target": list(args.models),
         "batch_size": args.batch_size,
         "epochs": args.epochs,
-        "learning_rate": args.lr,
-        "smoke_test": args.smoke_test
+        "learning_rate": args.lr
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
     print(f">> Launching DL evaluation for {len(args.models)} models...", flush=True)
     
     for model_key in args.models:
-        if model_key in completed_set and not args.smoke_test:
+        if model_key in completed_set:
             print(f"Skipping {model_key} (already completed)", flush=True)
             continue
             
@@ -86,8 +84,7 @@ def main():
                 batch_size=args.batch_size,
                 epochs=args.epochs,
                 learning_rate=args.lr,
-                out_dir=f"{args.out_dir}/checkpoints",
-                smoke_test=args.smoke_test
+                out_dir=f"{args.out_dir}/checkpoints"
             )
             
             # Extract CM before saving
@@ -95,7 +92,8 @@ def main():
             
             # Save metrics
             df_res = pd.DataFrame([res_dict])
-            df_res.to_csv(results_file, mode="a", index=False, header=not results_file.exists())
+            has_res_headers = results_file.exists() and results_file.stat().st_size > 0
+            df_res.to_csv(results_file, mode="a", index=False, header=not has_res_headers)
             
             # Save CM
             cm_records = []
@@ -109,7 +107,8 @@ def main():
                         "count": int(cm[i, j])
                     })
             df_cm = pd.DataFrame(cm_records)
-            df_cm.to_csv(cm_file, mode="a", index=False, header=not cm_file.exists())
+            has_cm_headers = cm_file.exists() and cm_file.stat().st_size > 0
+            df_cm.to_csv(cm_file, mode="a", index=False, header=not has_cm_headers)
             
             print(f">> OK: {model_key} evaluation saved.", flush=True)
         except Exception as e:

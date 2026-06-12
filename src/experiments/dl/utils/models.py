@@ -3,10 +3,10 @@ Registry for Small Language Models (SLMs) used in the Deep Learning pipeline.
 These are Hugging Face model hub identifiers.
 """
 
-# The 7 chosen models (Spanish + Multilingual + Lightweight)
+# The chosen models (Spanish + Multilingual + Lightweight)
 SLM_MODELS = {
     "beto": "dccuchile/bert-base-spanish-wwm-cased",
-    "roberta-es": "PlanTL-GOB-ES/roberta-base-bne",
+    "roberta-es": "BSC-LT/MrBERT-es",
     "mbert": "bert-base-multilingual-cased",
     "xlm-r": "xlm-roberta-base",
     "mdeberta": "microsoft/mdeberta-v3-base",
