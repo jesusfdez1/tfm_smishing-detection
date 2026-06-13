@@ -1,0 +1,16 @@
+{
+  "split": "80/10/10",
+  "models_target": [
+    "beto",
+    "roberta-es",
+    "mbert",
+    "xlm-r",
+    "mdeberta",
+    "distilbert",
+    "minilm",
+    "securebert2"
+  ],
+  "batch_size": 16,
+  "epochs": 3,
+  "learning_rate": 2e-05
+}

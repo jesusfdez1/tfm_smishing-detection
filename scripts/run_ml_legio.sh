@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ml_pipeline
+#SBATCH --job-name=tfm_ml
 #SBATCH --output=%j.out
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -10,7 +10,7 @@
 cd $HOME/tfm_smishing-detection
 
 echo "=================================================="
-echo "Starting ml_pipeline at: $PWD"
+echo "Starting Machine Learning pipeline at: $PWD"
 echo "=================================================="
 
 # Create necessary output directories
@@ -19,41 +19,49 @@ mkdir -p output/ml
 # Enable bash aliases so module commands work (uv, python)
 shopt -s expand_aliases
 
-# Load the official container module
-export MY_ENV="tfm_smishing_ml"
+# Load the official HPC containers module
+export MY_ENV="tfm_smishing"
 module load containers/cuda-12.4-uv
 
+# Environment variables
 export PYTHONUNBUFFERED=1
 
 echo "=================================================="
-echo "Running Python 3.11 for gensim compatibility"
+echo "Forcing Python 3.11 to avoid gensim C-API compilation errors"
 echo "=================================================="
 
-# Use the 'uv' tool from the module to download Python 3.11
+# The SLURM bash script runs on the host node, NOT inside the container!
+# Commands like 'uv' are aliases that execute inside the container.
+# Therefore, absolute paths like /opt/venv_ml/bin/python only exist inside the container.
+# We must use 'uv run' to execute our python script INSIDE the container using the venv we just created!
+echo "=================================================="
+echo "Executing ML pipeline inside container via uv run"
+echo "=================================================="
+
+export UV_PYTHON_INSTALL_DIR=/opt/uv_pythons
+mkdir -p /opt/uv_pythons
+
+# Download Python 3.11 explicitly into the overlay
 uv python install 3.11
 
-# Create an isolated virtual environment with the stable version
-uv venv .venv_ml --python 3.11
+# Create the virtual environment in the overlay (WITHOUT --clear so it reuses the 80-min installation)
+echo ">> Creating isolated environment in /opt/venv_ml"
+uv venv /opt/venv_ml --python 3.11
 
-# Activate it
-source .venv_ml/bin/activate
+# Install requirements explicitly into the overlay venv using uv (will skip if already installed)
+uv pip install --python /opt/venv_ml scikit-learn pandas numpy xgboost lightgbm catboost gensim fasttext-wheel tqdm imbalanced-learn
 
-# Install requirements extremely fast with uv
-uv pip install -r requirements.txt
+echo ">> [PHASE 1/4] Training NORM variant (Baseline)"
+uv run --python /opt/venv_ml python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml/norm --feature_type norm
 
-# Run the Machine Learning grid search for ALL feature variants
+echo ">> [PHASE 2/4] Training RAW variant (Privacy vs Overfitting)"
+uv run --python /opt/venv_ml python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml/raw --feature_type raw
 
-echo ">> [1/4] Training NORM variant (Baseline)"
-python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml/norm --feature_type norm
+echo ">> [PHASE 3/4] Training ANONYMIZED variant"
+uv run --python /opt/venv_ml python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml/anonymized --feature_type anonymized
 
-echo ">> [2/4] Training RAW variant (Privacy vs Overfitting)"
-python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml/raw --feature_type raw
-
-echo ">> [3/4] Training ANONYMIZED variant"
-python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml/anonymized --feature_type anonymized
-
-echo ">> [4/4] Training INJECTED variant (Urgency + Theme)"
-python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml/injected --feature_type injected
+echo ">> [PHASE 4/4] Training INJECTED variant (Urgency + Theme)"
+uv run --python /opt/venv_ml python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml/injected --feature_type injected
 
 echo "=================================================="
 echo "Process finished. Job completed successfully."

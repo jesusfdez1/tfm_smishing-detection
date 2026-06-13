@@ -22,7 +22,12 @@ import json
 from pathlib import Path
 
 # FIX: Import torch before pandas/gensim to avoid DLL conflicts on Windows
-import torch
+# Wrap in try-except so it doesn't crash on the Legio Linux cluster where we omit heavy PyTorch
+try:
+    import torch
+except ImportError:
+    pass
+
 import pandas as pd
 
 from src.experiments.ml.utils.classifiers import CLASSIFIER_NAMES
