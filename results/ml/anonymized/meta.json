@@ -1,0 +1,24 @@
+{
+  "split": "80/10/10",
+  "seed": 42,
+  "encoders": [
+    "bow",
+    "tfidf",
+    "w2v",
+    "fasttext"
+  ],
+  "classifiers": [
+    "nb",
+    "logreg",
+    "rf",
+    "svm"
+  ],
+  "datasets": [
+    "metasms"
+  ],
+  "class_order": [
+    "ham",
+    "spam",
+    "smishing"
+  ]
+}

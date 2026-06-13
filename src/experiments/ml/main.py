@@ -22,7 +22,12 @@ import json
 from pathlib import Path
 
 # FIX: Import torch before pandas/gensim to avoid DLL conflicts on Windows
-import torch
+# Wrap in try-except so it doesn't crash on the Legio Linux cluster where we omit heavy PyTorch
+try:
+    import torch
+except ImportError:
+    pass
+
 import pandas as pd
 
 from src.experiments.ml.utils.classifiers import CLASSIFIER_NAMES
@@ -38,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--datasets", nargs="+", default=["metasms"])
     p.add_argument("--encoders", nargs="+", default=ENCODER_NAMES)
     p.add_argument("--classifiers", nargs="+", default=CLASSIFIER_NAMES)
+    p.add_argument("--feature_type", type=str, default="norm", choices=["norm", "raw", "anonymized", "injected"], help="Text representation to use")
     p.add_argument("--quiet", action="store_true")
     return p.parse_args()
 
@@ -47,8 +53,8 @@ def main() -> None:
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(">> Loading datasets...", flush=True)
-    splits_all = load_all_datasets(args.data_root)
+    print(f">> Loading datasets (Feature View: {args.feature_type})...", flush=True)
+    splits_all = load_all_datasets(args.data_root, feature_type=args.feature_type)
 
     unknown = [k for k in args.datasets if k not in splits_all]
     if unknown:
@@ -104,7 +110,8 @@ def main() -> None:
     ):
         # Save result
         df_res = pd.DataFrame([res.__dict__])
-        df_res.to_csv(results_file, mode="a", index=False, header=not results_file.exists())
+        has_res_headers = results_file.exists() and results_file.stat().st_size > 0
+        df_res.to_csv(results_file, mode="a", index=False, header=not has_res_headers)
         
         # Save CM
         cm_records = []
@@ -119,7 +126,8 @@ def main() -> None:
                     "count": int(cm[i, j]),
                 })
         df_cm = pd.DataFrame(cm_records)
-        df_cm.to_csv(cm_file, mode="a", index=False, header=not cm_file.exists())
+        has_cm_headers = cm_file.exists() and cm_file.stat().st_size > 0
+        df_cm.to_csv(cm_file, mode="a", index=False, header=not has_cm_headers)
 
     print(f">> Grid finished.", flush=True)
 
