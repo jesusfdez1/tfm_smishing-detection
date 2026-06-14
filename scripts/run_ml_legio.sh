@@ -49,7 +49,7 @@ echo ">> Creating isolated environment in /opt/venv_ml"
 uv venv /opt/venv_ml --python 3.11
 
 # Install requirements explicitly into the overlay venv using uv (will skip if already installed)
-uv pip install --python /opt/venv_ml scikit-learn pandas numpy xgboost lightgbm catboost gensim fasttext-wheel tqdm imbalanced-learn
+uv pip install --python /opt/venv scikit-learn pandas numpy xgboost lightgbm catboost gensim fasttext-wheel tqdm imbalanced-learn
 
 echo ">> [PHASE 1/4] Training NORM variant (Baseline)"
 uv run --python /opt/venv_ml python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml/norm --feature_type norm

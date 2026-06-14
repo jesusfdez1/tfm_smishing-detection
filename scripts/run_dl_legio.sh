@@ -25,7 +25,11 @@ export PYTHONUNBUFFERED=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PATH="/root/.local/bin:$PATH"
 export HF_HOME=$HOME/.cache/huggingface
-export HF_TOKEN="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"
+# Load environment variables from .env file
+if [ -f .env ]; then
+  export $(grep -E '^HF_TOKEN' .env | xargs)
+fi
+
 mkdir -p $HF_HOME
 
 # Clean corrupt RoBERTa-es cache just in case
@@ -41,9 +45,9 @@ echo "=================================================="
 echo "Running Python from HPC image"
 echo "=================================================="
 
-# Install strictly necessary DL requirements, ignoring gensim/fasttext
+# Install strictly necessary DL requirements using the cluster's superfast alias
 # Added sentencepiece and tiktoken needed for roberta-es tokenizer
-python -m pip install scikit-learn transformers datasets accelerate torch pandas sentencepiece tiktoken huggingface_hub
+uv pip install --python /opt/venv scikit-learn transformers datasets accelerate torch pandas sentencepiece tiktoken huggingface_hub
 
 # Authenticate HF robustly using python directly (avoids CLI binary path issues)
 python -c "from huggingface_hub import login; login(token='${HF_TOKEN}')"
