@@ -38,11 +38,16 @@ echo "=================================================="
 echo "Initializing Environment..."
 echo "=================================================="
 
-# Initialize virtual environment in the apptainer overlay
-uv-venv
+# Download Python 3.11 explicitly to get precompiled wheels for vLLM
+export UV_PYTHON_INSTALL_DIR=/opt/uv_pythons
+mkdir -p /opt/uv_pythons
+uv python install 3.11
 
-# Install requirements
-uv pip install --python /opt/venv transformers accelerate torch sentencepiece huggingface_hub jinja2
+# Create the virtual environment with Python 3.11
+uv venv /opt/venv_llm --python 3.11
+
+# Install requirements using the specific python 3.11 environment
+uv pip install --python /opt/venv_llm transformers accelerate torch sentencepiece huggingface_hub jinja2 vllm>=0.5.0
 
 # Authenticate HF
 python -c "from huggingface_hub import login; login(token='${HF_TOKEN}')"

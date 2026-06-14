@@ -80,36 +80,38 @@ def extract_label_from_json(response_text: str) -> str:
     return "ham" # Ultimate fallback class
 
 def evaluate_llm(client, texts: list[str], labels: list[str], config: dict, few_shot_examples: list[dict] = None) -> tuple[dict, list, list, list]:
-    y_pred = []
-    y_true = []
-    raw_responses = []
-    
     system_prompt = get_system_prompt(persona=config["persona"], reasoning=config["reasoning"])
     
-    t0 = time.perf_counter()
-    for i, (text, label) in enumerate(zip(texts, labels)):
+    print(f">> Preparing {len(texts)} prompts for vLLM...", flush=True)
+    raw_prompts = []
+    for text in texts:
         if config["context"] == "few-shot" and few_shot_examples:
-            prompt = build_few_shot_prompt(text, few_shot_examples)
+            raw_prompts.append(build_few_shot_prompt(text, few_shot_examples))
         else:
-            prompt = build_zero_shot_prompt(text)
+            raw_prompts.append(build_zero_shot_prompt(text))
             
-        try:
-            prediction = client.generate(prompt=prompt, system_prompt=system_prompt)
-            final_pred = extract_label_from_json(prediction)
-            
-            y_pred.append(final_pred)
-            y_true.append(label)
-            raw_responses.append(prediction)
-        except Exception as e:
-            print(f"Error evaluating sample {i}: {e}")
-            y_pred.append("ham")
-            y_true.append(label)
-            raw_responses.append(f"ERROR: {str(e)}")
-            
-        if (i + 1) % 100 == 0:
-            print(f"Processed {i + 1}/{len(texts)} samples...", flush=True)
+    t0 = time.perf_counter()
+    
+    # Generate all responses in parallel using vLLM continuous batching
+    try:
+        raw_responses = client.generate_batch(raw_prompts, system_prompt=system_prompt)
+    except Exception as e:
+        print(f"!! Critical vLLM generation error: {e}")
+        raw_responses = [f"ERROR: {str(e)}"] * len(texts)
 
     predict_time = time.perf_counter() - t0
+    
+    y_pred = []
+    y_true = labels
+    
+    # Parse all generated responses
+    for i, response in enumerate(raw_responses):
+        try:
+            final_pred = extract_label_from_json(response)
+            y_pred.append(final_pred)
+        except Exception as e:
+            print(f"Error parsing sample {i}: {e}")
+            y_pred.append("ham")
     
     macro_f1 = f1_score(y_true, y_pred, average="macro", labels=CLASS_ORDER, zero_division=0)
     acc = accuracy_score(y_true, y_pred)

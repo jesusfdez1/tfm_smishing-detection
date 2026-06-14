@@ -1,70 +1,73 @@
 """
-Local client for interacting with LLM models using Hugging Face transformers.
+Local client for interacting with LLM models using vLLM for high-throughput batched inference.
 Supports loading models in half-precision (bfloat16) mapped to available GPUs.
 """
 
 import os
 import torch
-from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
+from vllm import LLM, SamplingParams
 
 class LocalLLMClient:
     def __init__(self, model_id: str, device_map: str = "auto"):
         self.model_id = model_id
         
-        # Load the tokenizer
+        # Load the tokenizer to apply the chat template accurately
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_id,
             token=os.environ.get("HF_TOKEN")
         )
         
         # Use bfloat16 if Ampere+ GPU is available, else float16.
-        # Fallback to float32 if CPU-only (not expected in this pipeline).
-        dtype = torch.float16
+        dtype = "float16"
         if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
-            dtype = torch.bfloat16
+            dtype = "bfloat16"
             
-        print(f"[{model_id}] Loading model into VRAM with {dtype} precision...", flush=True)
+        print(f"[{model_id}] Loading model into VRAM with vLLM ({dtype})...", flush=True)
         
-        # We load via pipeline to simplify the generation process
-        self.pipeline = pipeline(
-            "text-generation",
+        # Initialize the vLLM engine
+        self.llm = LLM(
             model=self.model_id,
-            tokenizer=self.tokenizer,
-            torch_dtype=dtype,
-            device_map=device_map,
-            token=os.environ.get("HF_TOKEN")
+            dtype=dtype,
+            trust_remote_code=True,
+            # Limit max length to save memory, SMS are short anyway
+            max_model_len=2048,
+            gpu_memory_utilization=0.90
+        )
+        
+        # Sampling parameters for deterministic generation
+        self.sampling_params = SamplingParams(
+            temperature=0.0,
+            max_tokens=150
         )
 
-    def generate(self, prompt: str, system_prompt: str) -> str:
+    def generate_batch(self, prompts: list[str], system_prompt: str) -> list[str]:
         """
-        Generates a response using the model's specific chat template.
+        Generates responses for a batch of prompts efficiently using vLLM's continuous batching.
         """
-        # Format the conversation exactly how the model expects it.
-        # This prevents performance degradation from raw prompts.
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ]
+        formatted_prompts = []
+        for prompt in prompts:
+            # Format the conversation exactly how the model expects it.
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ]
+            
+            # Apply chat template
+            prompt_text = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            formatted_prompts.append(prompt_text)
         
-        # Ask the tokenizer to apply the correct Jinja template for this model.
-        # We don't tokenize yet, just get the formatted string to pass to the pipeline.
-        prompt_text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
+        # Generate outputs in parallel
+        # vLLM handles batching and scheduling under the hood automatically
+        outputs = self.llm.generate(formatted_prompts, self.sampling_params, use_tqdm=True)
         
-        # Generate the output.
-        # max_new_tokens is set to 150 to ensure the model has enough space
-        # to generate the "reasoning" step in the Chain of Thought experiments.
-        outputs = self.pipeline(
-            prompt_text,
-            max_new_tokens=150,
-            max_length=None,
-            do_sample=False,   # Deterministic output (Temperature = 0)
-            return_full_text=False # Do not return the prompt
-        )
-        
-        generated_text = outputs[0]["generated_text"].strip()
-        return generated_text
-
+        # Extract generated text from each output object
+        generated_texts = []
+        for output in outputs:
+            generated_texts.append(output.outputs[0].text.strip())
+            
+        return generated_texts
