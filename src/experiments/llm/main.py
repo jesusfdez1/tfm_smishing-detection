@@ -14,6 +14,8 @@ import pandas as pd
 from pathlib import Path
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 from dotenv import load_dotenv
 
 from src.experiments.ml.utils.data import load_all_datasets, CLASS_ORDER
@@ -29,7 +31,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out_dir", type=str, default="output/llm")
     p.add_argument("--models", nargs="+", default=["phi4_mini", "qwen25_14b"], help="Model keys to evaluate")
     p.add_argument("--test_samples", type=int, default=1000, help="Number of test samples to evaluate")
-    p.add_argument("--smoke_test", action="store_true", help="Run a fast subset for testing")
     return p.parse_args()
 
 LOCAL_MODELS = {
@@ -40,6 +41,7 @@ LOCAL_MODELS = {
     "ministral_8b": "mistralai/Ministral-8B-Instruct-2410",
     "olmoe_1b_7b": "allenai/OLMoE-1B-7B-0924-Instruct", # Modelo MoE para Edge (7B total, 1B activo)
     "falcon3_7b": "tiiuae/Falcon3-7B-Instruct",         # TII (Falcon 3)
+    "llama31_8b": "meta-llama/Llama-3.1-8B-Instruct",   # Meta (LLaMA 3.1)
     
     # Medium / Server Models (10B - 35B) -> Optimizados para 2 GPUs (80GB VRAM)
     "moonlight_16b": "moonshotai/Moonlight-16B-A3B-Instruct",   # Moonshot AI (Kimi, 2026)
@@ -95,14 +97,28 @@ def extract_label_from_json(response_text: str) -> str:
     
     return "ham" # Ultimate fallback class
 
-def evaluate_llm(client, texts: list[str], labels: list[str], config: dict, few_shot_examples: list[dict] = None) -> tuple[dict, list, list, list]:
+def evaluate_llm(client, texts: list[str], labels: list[str], config: dict, few_shot_examples: list[dict] = None, X_train: list[str] = None, y_train: list[str] = None, vectorizer = None, X_train_tfidf = None) -> tuple[dict, list, list, list]:
     system_prompt = get_system_prompt(persona=config["persona"], reasoning=config["reasoning"])
     
     print(f">> Preparing {len(texts)} prompts for vLLM...", flush=True)
     raw_prompts = []
-    for text in texts:
+    
+    if config["context"] == "dynamic-few-shot" and vectorizer is not None and X_train_tfidf is not None:
+        print(">> Computing dynamic TF-IDF similarities...", flush=True)
+        texts_tfidf = vectorizer.transform(texts)
+        similarities = cosine_similarity(texts_tfidf, X_train_tfidf)
+    else:
+        similarities = None
+
+    for i, text in enumerate(texts):
         if config["context"] == "few-shot" and few_shot_examples:
             raw_prompts.append(build_few_shot_prompt(text, few_shot_examples))
+        elif config["context"] == "dynamic-few-shot" and similarities is not None:
+            sim_scores = similarities[i]
+            import numpy as np
+            top_k_idx = np.argsort(sim_scores)[-3:][::-1]
+            dynamic_examples = [{"label": y_train[idx], "text": X_train[idx]} for idx in top_k_idx]
+            raw_prompts.append(build_few_shot_prompt(text, dynamic_examples))
         else:
             raw_prompts.append(build_zero_shot_prompt(text))
             
@@ -174,7 +190,7 @@ def main():
     y_train = y_train.tolist()
     y_test = y_test.tolist()
     
-    target_samples = 10 if args.smoke_test else args.test_samples
+    target_samples = args.test_samples
     target_samples = min(target_samples, len(X_test))
     
     X_test_sub, _, y_test_sub, _ = train_test_split(
@@ -197,14 +213,17 @@ def main():
         {"name": "zero-shot_expert_direct", "context": "zero-shot", "persona": "expert", "reasoning": "direct"},
         {"name": "zero-shot_expert_cot", "context": "zero-shot", "persona": "expert", "reasoning": "cot"},
         {"name": "few-shot_expert_cot", "context": "few-shot", "persona": "expert", "reasoning": "cot"},
+        {"name": "dynamic-few-shot_expert_cot", "context": "dynamic-few-shot", "persona": "expert", "reasoning": "cot"},
     ]
-    
-    if args.smoke_test:
-        grid_configs = [grid_configs[0], grid_configs[-1]] # Test extreme edges for speed
         
     results_file = out_dir / "results.csv"
     cm_file = out_dir / "confusion_matrices.csv"
     raw_file = out_dir / "raw_predictions.csv"
+    
+    # Precompute TF-IDF for Dynamic Few-Shot
+    print(">> Pre-computing TF-IDF for Dynamic Few-Shot retrieval...", flush=True)
+    vectorizer = TfidfVectorizer(max_features=10000)
+    X_train_tfidf = vectorizer.fit_transform(X_train)
     
     for model_key in args.models:
         print(f"\n=======================================================", flush=True)
@@ -244,7 +263,12 @@ def main():
             
             print(f">> Running {variant_name}...", flush=True)
             
-            res_dict, cm, y_pred, raw_responses = evaluate_llm(client, X_test_sub, y_test_sub, config, few_shot_examples=few_shot_examples)
+            res_dict, cm, y_pred, raw_responses = evaluate_llm(
+                client, X_test_sub, y_test_sub, config, 
+                few_shot_examples=few_shot_examples,
+                X_train=X_train, y_train=y_train, 
+                vectorizer=vectorizer, X_train_tfidf=X_train_tfidf
+            )
             
             res_dict["dataset"] = "MetaSMS"
             res_dict["model_key"] = f"{model_key}_{variant_name}"
