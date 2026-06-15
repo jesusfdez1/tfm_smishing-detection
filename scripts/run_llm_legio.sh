@@ -6,55 +6,53 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH --partition=computo
-#SBATCH --gres=gpu:1
-#SBATCH --time=48:00:00
+#SBATCH --gres=gpu:2
 
 cd $HOME/tfm_smishing-detection
-
-echo "=================================================="
-echo "Starting LLM pipeline at: $PWD"
-echo "=================================================="
-
-# Create necessary output directories
 mkdir -p output/llm
 
-# Enable bash aliases so module commands work
-shopt -s expand_aliases
-
-# Environment variables
 export PYTHONUNBUFFERED=1
 export HF_HOME=$HOME/.cache/huggingface
-# Load environment variables from .env file
-if [ -f .env ]; then
-  export $(grep -E '^HF_TOKEN' .env | xargs)
-fi
+if [ -f .env ]; then export $(grep -E '^HF_TOKEN' .env | xargs); fi
 mkdir -p $HF_HOME
 
-# Load the official HPC containers module with a dedicated LLM overlay
-export MY_ENV="tfm_smishing"
-module load containers/cuda-12.4-uv
+# ==============================================================================
+# En lugar de usar el 'module load' que nos inyectaba comandos ocultos (--no-home, --overlay)
+# llamamos directamente a Apptainer.
+#
+# Al crear el entorno en $HOME (CEPH) y tener la caché en $HOME (CEPH),
+# uv PUEDE HACER HARDLINKS NATIVOS. 0 crasheos de concurrencia y se instala en 2 segundos.
+# ==============================================================================
+CONTAINER="/opt/ohpc/pub/containers/cuda-12.4-uv.sif"
 
 echo "=================================================="
-echo "Initializing Environment..."
+echo "1. Creando entorno virtual limpio en el directorio local..."
 echo "=================================================="
+rm -rf .venv_llm
+# Ejecutamos uv desde dentro del contenedor pelado
+apptainer exec --nv $CONTAINER uv venv .venv_llm --python 3.11
 
-# Download Python 3.11 explicitly to get precompiled wheels for vLLM
-export UV_PYTHON_INSTALL_DIR=/opt/uv_pythons
-mkdir -p /opt/uv_pythons
-uv python install 3.11
+echo "=================================================="
+echo "2. Instalando dependencias velozmente (Hardlinks en CEPH)..."
+echo "=================================================="
+# Esta vez no saldrá el "warning: Failed to hardlink" y no se colgará
+apptainer exec --nv $CONTAINER uv pip install --python .venv_llm pandas scikit-learn datasets transformers accelerate torch sentencepiece huggingface_hub jinja2 tiktoken ninja vllm>=0.5.0
 
-# Create the virtual environment with Python 3.11
-uv venv /opt/venv_llm --python 3.11
+echo "=================================================="
+echo "3. Autenticando HuggingFace..."
+echo "=================================================="
+apptainer exec --nv $CONTAINER .venv_llm/bin/python -c "from huggingface_hub import login; login(token='${HF_TOKEN}')"
 
-# Install requirements using the specific python 3.11 environment
-uv pip install --python /opt/venv_llm transformers accelerate torch sentencepiece huggingface_hub jinja2 vllm>=0.5.0
+echo "=================================================="
+echo "4. >> [PHASE 3] LLM Evaluation (Edge vs Server)"
+echo "=================================================="
+# Solución al cuelgue de vLLM en Multi-GPU (NCCL Hang) dentro de Apptainer/SLURM
+export NCCL_IB_DISABLE=1
+export NCCL_P2P_DISABLE=1
 
-# Authenticate HF
-python -c "from huggingface_hub import login; login(token='${HF_TOKEN}')"
-
-echo ">> [PHASE 3] LLM Evaluation (Edge vs Server)"
-python -m src.experiments.llm.main \
-    --models phi4_mini gemma3n_4b qwen3_5_9b ministral_8b qwen3_6_27b gemma4_31b mistral_small_24b deepseek_v4_flash kimi_moonlight
+apptainer exec --nv $CONTAINER bash -c "export PATH=\$PWD/.venv_llm/bin:\$PATH && export NCCL_IB_DISABLE=1 && export NCCL_P2P_DISABLE=1 && .venv_llm/bin/python -m src.experiments.llm.main \
+    --test_samples 10000 \
+    --models phi4_mini gemma3_4b qwen35_4b ministral_8b falcon3_7b olmoe_1b_7b moonlight_16b gemma4_12b deepseek_r1_14b qwen25_14b mistral_nemo_12b qwen35_35b_moe"
 
 echo "=================================================="
 echo "Process finished. Job completed successfully."

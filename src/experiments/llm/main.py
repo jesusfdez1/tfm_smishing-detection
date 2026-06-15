@@ -27,21 +27,27 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="LLM Evaluation Pipeline")
     p.add_argument("--data_root", type=str, default="data/processed")
     p.add_argument("--out_dir", type=str, default="output/llm")
-    p.add_argument("--models", nargs="+", default=["phi4_mini", "qwen3_6_27b"], help="Model keys to evaluate")
+    p.add_argument("--models", nargs="+", default=["phi4_mini", "qwen25_14b"], help="Model keys to evaluate")
     p.add_argument("--test_samples", type=int, default=1000, help="Number of test samples to evaluate")
     p.add_argument("--smoke_test", action="store_true", help="Run a fast subset for testing")
     return p.parse_args()
 
 LOCAL_MODELS = {
+    # Small / Edge Models (< 10B)
     "phi4_mini": "microsoft/Phi-4-Mini-Instruct",
-    "gemma3n_4b": "google/gemma-3n-4b-it",
-    "qwen3_5_9b": "Qwen/Qwen3.5-9B-Instruct",
-    "ministral_8b": "mistralai/Ministral-3-8B-Instruct-2512",
-    "qwen3_6_27b": "Qwen/Qwen3.6-27B-Instruct",
-    "gemma4_31b": "google/gemma-4-31b-it",
-    "mistral_small_24b": "mistralai/Mistral-Small-3.2-24B-Instruct-2506",
-    "deepseek_v4_flash": "deepseek-ai/DeepSeek-V4-Flash",
-    "kimi_moonlight": "moonshotai/Moonlight-16B-A3B-Instruct"
+    "gemma3_4b": "google/gemma-3-4b-it",
+    "qwen35_4b": "Qwen/Qwen3.5-4B",
+    "ministral_8b": "mistralai/Ministral-8B-Instruct-2410",
+    "olmoe_1b_7b": "allenai/OLMoE-1B-7B-0924-Instruct", # Modelo MoE para Edge (7B total, 1B activo)
+    "falcon3_7b": "tiiuae/Falcon3-7B-Instruct",         # TII (Falcon 3)
+    
+    # Medium / Server Models (10B - 35B) -> Optimizados para 2 GPUs (80GB VRAM)
+    "moonlight_16b": "moonshotai/Moonlight-16B-A3B-Instruct",   # Moonshot AI (Kimi, 2026)
+    "gemma4_12b": "google/gemma-4-12B-it",                      # Google (Frontera 2026)
+    "deepseek_r1_14b": "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B", # DeepSeek (Razonamiento 14B)
+    "mistral_nemo_12b": "mistralai/Mistral-Nemo-Instruct-2407",  # Mistral AI (12B)
+    "qwen25_14b": "Qwen/Qwen2.5-14B-Instruct",                  # Alibaba Qwen (14B)
+    "qwen35_35b_moe": "Qwen/Qwen3.5-35B-A3B"                    # Alibaba MoE masivo (35B)
 }
 
 def init_client(model_key: str):
@@ -205,9 +211,7 @@ def main():
             variant_name = config["name"]
             model_variant = f"{model_key}_{variant_name}"
             
-            # Check if this variant was already processed (Resume functionality)
             if results_file.exists():
-                import pandas as pd
                 df_existing = pd.read_csv(results_file)
                 if "model_key" in df_existing.columns and model_variant in df_existing["model_key"].values:
                     print(f">> Skipping {model_variant}, already evaluated.", flush=True)
@@ -251,6 +255,24 @@ def main():
             df_raw.to_csv(raw_file, mode="a", index=False, header=not raw_file.exists())
             
             print(f">> OK: {model_key} {variant_name} evaluation saved.", flush=True)
+
+        # Destruir el engine de vLLM y vaciar la VRAM para que el siguiente modelo no lance Out Of Memory
+        if 'client' in locals() and client is not None:
+            try:
+                from vllm.distributed.parallel_state import destroy_model_parallel
+                destroy_model_parallel()
+            except ImportError:
+                pass
+            
+            if hasattr(client, 'llm'):
+                del client.llm
+            del client
+            
+            import gc
+            import torch
+            gc.collect()
+            torch.cuda.empty_cache()
+            print(f">> [CLEANUP] VRAM liberada tras evaluar {model_key}.", flush=True)
 
     print(">> LLM pipeline finished.", flush=True)
 

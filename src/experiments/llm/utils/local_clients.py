@@ -18,21 +18,22 @@ class LocalLLMClient:
             token=os.environ.get("HF_TOKEN")
         )
         
-        # Use bfloat16 if Ampere+ GPU is available, else float16.
-        dtype = "float16"
-        if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
-            dtype = "bfloat16"
-            
-        print(f"[{model_id}] Loading model into VRAM with vLLM ({dtype})...", flush=True)
+        print(f"[{model_id}] Loading model into VRAM with vLLM (auto dtype)...", flush=True)
         
         # Initialize the vLLM engine
+        # We MUST use dtype="auto" and NOT call torch.cuda.is_available() before this,
+        # otherwise CUDA initializes in the parent process, forcing vLLM to use 'spawn'
+        # which crashes silently inside Apptainer containers due to /dev/shm limits.
         self.llm = LLM(
             model=self.model_id,
-            dtype=dtype,
+            dtype="auto",
             trust_remote_code=True,
             # Limit max length to save memory, SMS are short anyway
             max_model_len=2048,
-            gpu_memory_utilization=0.90
+            gpu_memory_utilization=0.90,
+            enforce_eager=True, # Avoid CUDA graph capture crashes on some clusters
+            tensor_parallel_size=torch.cuda.device_count(), # ¡Magia Multi-GPU!
+            disable_custom_all_reduce=True # Evita el cuelgue CUSTOM cuando P2P está desactivado en HPC
         )
         
         # Sampling parameters for deterministic generation
