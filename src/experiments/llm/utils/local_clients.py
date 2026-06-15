@@ -37,9 +37,10 @@ class LocalLLMClient:
         )
         
         # Sampling parameters for deterministic generation
+        temp = 0.3 if "nemo" in self.model_id.lower() else 0.0
         self.sampling_params = SamplingParams(
-            temperature=0.0,
-            max_tokens=150
+            temperature=temp,
+            max_tokens=1024 # Increased significantly to allow DeepSeek-R1 to finish its <think> block
         )
 
     def generate_batch(self, prompts: list[str], system_prompt: str) -> list[str]:
@@ -48,17 +49,28 @@ class LocalLLMClient:
         """
         formatted_prompts = []
         for prompt in prompts:
-            # Format the conversation exactly how the model expects it.
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
-            ]
+            # DeepSeek-R1 and OlmoE prefer NO system prompt (instructions inside user prompt)
+            if "deepseek-r1" in self.model_id.lower() or "olmoe" in self.model_id.lower():
+                messages = [
+                    {"role": "user", "content": f"{system_prompt}\n\n{prompt}"}
+                ]
+            else:
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ]
             
             # Apply chat template
+            template_kwargs = {
+                "tokenize": False,
+                "add_generation_prompt": True
+            }
+            if "qwen3.5" in self.model_id.lower():
+                template_kwargs["enable_thinking"] = False
+                
             prompt_text = self.tokenizer.apply_chat_template(
                 messages,
-                tokenize=False,
-                add_generation_prompt=True
+                **template_kwargs
             )
             formatted_prompts.append(prompt_text)
         

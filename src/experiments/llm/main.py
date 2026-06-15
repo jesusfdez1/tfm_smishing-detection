@@ -57,9 +57,19 @@ def init_client(model_key: str):
     
     return LocalLLMClient(model_id=hf_model_id)
 
+import re
+
 def extract_label_from_json(response_text: str) -> str:
     """Safely extracts the label from a JSON response."""
     text = response_text.strip()
+    
+    # Remove DeepSeek-R1 reasoning blocks if present
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+    # In case the generation cut off without closing </think>
+    if '<think>' in text:
+        text = text.split('</think>')[-1] # take everything after closing, or empty
+        text = text.replace('<think>', '').strip()
+        
     # Clean markdown wrappers if present
     if text.startswith("```json"):
         text = text[7:]
@@ -201,6 +211,21 @@ def main():
         print(f"=== Evaluating {model_key} ===", flush=True)
         print(f"=======================================================", flush=True)
         
+        # Check if all variants for this model are already evaluated before loading into VRAM
+        all_evaluated = False
+        if results_file.exists():
+            df_existing = pd.read_csv(results_file)
+            if "model_key" in df_existing.columns:
+                evaluated_variants = df_existing["model_key"].values
+                all_evaluated = all(
+                    f"{model_key}_{config['name']}" in evaluated_variants
+                    for config in grid_configs
+                )
+                
+        if all_evaluated:
+            print(f">> All variants for {model_key} already evaluated. Skipping model load.", flush=True)
+            continue
+            
         try:
             client = init_client(model_key)
         except Exception as e:
