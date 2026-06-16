@@ -16,14 +16,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from dotenv import load_dotenv
-
 from src.experiments.ml.utils.data import load_all_datasets, CLASS_ORDER
 from src.experiments.llm.utils.prompts import get_system_prompt, build_zero_shot_prompt, build_few_shot_prompt
 from src.experiments.llm.utils.local_clients import LocalLLMClient
 
-# Load environment variables
-load_dotenv()
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="LLM Evaluation Pipeline")
