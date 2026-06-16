@@ -48,3 +48,5 @@ _book/
 *_cache/
 
 output/
+/.quarto/
+**/*.quarto_ipynb
