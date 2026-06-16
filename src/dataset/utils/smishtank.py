@@ -276,7 +276,7 @@ def main() -> None:
                 append_to_jsonl(batch_records, OUTPUT_JSONL)
                 total_saved += len(batch_records)
                 
-                # Contamos cuántos IDs vacíos hay desde el último válido hasta el final del lote
+                # Count how many empty IDs there are from the last valid one to the end of the batch
                 last_valid_id = batch_records[-1]["message_id"]
                 consecutive_empty = id_batch[-1] - last_valid_id
 

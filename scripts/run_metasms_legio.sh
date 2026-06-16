@@ -9,38 +9,38 @@
 #SBATCH --gres=gpu:1
 #SBATCH --exclusive
 
-# 1. Definir variables de directorios
+# 1. Define directory variables
 HOME_DIR="$HOME/tfm_smishing-detection"
 SCRATCH_DIR="/local_scratch/$SLURM_JOB_ID/tfm_smishing-detection"
 
 echo "=================================================="
-echo "Preparando entorno en SSD local (/local_scratch)"
+echo "Preparing environment in local SSD (/local_scratch)"
 echo "=================================================="
 
-# 2. Configurar limpieza automática (incluso si el job falla o es cancelado)
-trap 'echo "Limpiando $SCRATCH_DIR..."; rm -rf /local_scratch/$SLURM_JOB_ID' EXIT
+# 2. Configure automatic cleanup (even if the job fails or is cancelled)
+trap 'echo "Cleaning $SCRATCH_DIR..."; rm -rf /local_scratch/$SLURM_JOB_ID' EXIT
 
-# 3. Crear directorio temporal en el SSD local
+# 3. Create temporary directory in local SSD
 mkdir -p "$SCRATCH_DIR"
 
-# 4. Copiar el código y los datos de entrada al SSD local
-# Se excluyen datos procesados previos para no saturar la copia
+# 4. Copy code and input data to local SSD
+# Exclude previous processed data to avoid saturating the copy
 rsync -avq --exclude='data/processed' --exclude='logs' "$HOME_DIR/" "$SCRATCH_DIR/"
 
-# 5. Moverse al SSD local para que toda la E/S ocurra ahí
+# 5. Move to local SSD so all I/O happens there
 cd "$SCRATCH_DIR"
 
-# Creamos las carpetas necesarias en el SSD
+# Create necessary folders in SSD
 mkdir -p logs data/processed
 
 echo "=================================================="
-echo "Iniciando build_metasms en: $PWD"
+echo "Starting build_metasms at: $PWD"
 echo "=================================================="
 
-# Habilitamos los alias de bash para que funcionen los comandos del módulo (uv, python)
+# Enable bash aliases so module commands work (uv, python)
 shopt -s expand_aliases
 
-# Siguiendo el manual: Cargamos el módulo oficial usando tu imagen
+# Following the manual: Load the official module using your image
 export MY_ENV="tfm_smishing"
 module load containers/cuda-12.4-uv
 
@@ -49,23 +49,23 @@ export TRANSFORMERS_VERBOSITY=debug
 export HF_HUB_VERBOSITY=debug
 
 echo "=================================================="
-echo "Ejecutando Python desde la imagen tfm_smishing.img"
+echo "Executing Python from tfm_smishing.img image"
 echo "=================================================="
 
-# Instalamos los requirements por si falta alguno en la imagen usando el python configurado
+# Install requirements in case any is missing in the image using configured python
 python -m pip install -r requirements.txt
 
-# Ejecutamos el script tal cual indica el manual
+# Execute the script as indicated in the manual
 python src/dataset/build_metadataset.py --privacy-filter --checkpoint-every 5000 --chunk-size 5000
 
 echo "=================================================="
-echo "Proceso finalizado. Sincronizando resultados a HOME..."
+echo "Process finished. Synchronizing results to HOME..."
 echo "=================================================="
 
-# 6. Sincronizar de vuelta los datos procesados y logs al almacenamiento en red (CEPH)
+# 6. Sync back processed data and logs to network storage (CEPH)
 rsync -avq "$SCRATCH_DIR/data/processed/" "$HOME_DIR/data/processed/"
 rsync -avq "$SCRATCH_DIR/logs/" "$HOME_DIR/logs/"
 
 echo "=================================================="
-echo "Sincronización completa. Trabajo terminado exitosamente."
+echo "Synchronization complete. Job finished successfully."
 echo "=================================================="

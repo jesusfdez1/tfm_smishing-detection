@@ -70,7 +70,7 @@ def main():
         if has_ai_col:
             df = df[df["is_ai_generated"] == 1]
         else:
-            df = df.iloc[0:0] # Ninguno es AI si la columna no existe
+            df = df.iloc[0:0] # None are AI if the column does not exist
         print(f"Kept ONLY AI generated. Remaining: {len(df)}")
 
     # 5. Filter Length

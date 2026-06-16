@@ -35,7 +35,7 @@ LOCAL_MODELS = {
     "gemma3_4b": "google/gemma-3-4b-it",
     "qwen35_4b": "Qwen/Qwen3.5-4B",
     "ministral_8b": "mistralai/Ministral-8B-Instruct-2410",
-    "olmoe_1b_7b": "allenai/OLMoE-1B-7B-0924-Instruct", # Modelo MoE para Edge (7B total, 1B activo)
+    "olmoe_1b_7b": "allenai/OLMoE-1B-7B-0924-Instruct", # MoE model for Edge (7B total, 1B active)
     "falcon3_7b": "tiiuae/Falcon3-7B-Instruct",         # TII (Falcon 3)
     "llama31_8b": "meta-llama/Llama-3.1-8B-Instruct",   # Meta (LLaMA 3.1)
     
@@ -301,7 +301,7 @@ def main():
             
             print(f">> OK: {model_key} {variant_name} evaluation saved.", flush=True)
 
-        # Destruir el engine de vLLM y vaciar la VRAM para que el siguiente modelo no lance Out Of Memory
+        # Destroy the vLLM engine and clear VRAM so the next model does not throw Out Of Memory
         if 'client' in locals() and client is not None:
             try:
                 from vllm.distributed.parallel_state import destroy_model_parallel
@@ -317,7 +317,7 @@ def main():
             import torch
             gc.collect()
             torch.cuda.empty_cache()
-            print(f">> [CLEANUP] VRAM liberada tras evaluar {model_key}.", flush=True)
+            print(f">> [CLEANUP] VRAM freed after evaluating {model_key}.", flush=True)
 
     print(">> LLM pipeline finished.", flush=True)
 
