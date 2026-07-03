@@ -5,6 +5,8 @@ This repository contains the complete experimental framework and data engineerin
 ## 1. Dataset Composition
 
 > **Data Dictionary:** For a detailed explanation of each CSV column, including the taxonomy of intents (`theme`), urgency levels, and ISO language codes, please refer to the **[Data Dictionary](docs/data_dictionary.md)**.
+> 
+> **Sample Dataset:** A small, anonymized sample of the dataset (30 rows, 10 per class) is available at `data/sample/metasms_sample.csv` for reference without exposing the full dataset.
 
 The meta-dataset is dynamically aggregated from **13 independent, heterogeneous sources** via `build_metadataset.py`, specifically curated to balance classes and maximize lexical diversity while strictly excluding standard emails to ensure domain fidelity:
 
