@@ -1,6 +1,12 @@
 # MetaSMS-HSS: A Unified Framework for Smishing Detection
 
-This repository contains the complete experimental framework and data engineering pipeline for **MetaSMS-HSS** (*Meta-dataset for Ham, Spam, and Smishing*). It facilitates the ingestion of highly heterogeneous sources into a unified, traceable, and anonymized meta-dataset, alongside a robust machine learning pipeline for experimental validation.
+This repository hosts a comprehensive ecosystem for advanced SMS threat intelligence. It is structured around two primary pillars:
+
+1. **The MetaSMS-HSS Data Engineering Pipeline**: A robust Extract-Transform-Load (ETL) system that ingests, anonymizes, deduplicates, and standardizes 13 heterogeneous data sources to create **MetaSMS-HSS** (*Meta-dataset for Ham, Spam, and Smishing*), an unprecedented multi-class dataset.
+2. **The Multi-Paradigm Experimental Framework**: A modular evaluation environment to comprehensively assess and compare three distinct algorithmic families on the generated data:
+   - **Traditional Machine Learning**: Extensive evaluation grids combining classic algorithms (Random Forest, SVM, Logistic Regression, Naive Bayes) with diverse text encoders (BoW, TF-IDF, Word2Vec, FastText).
+   - **Deep Learning**: Fine-tuning and evaluation of robust transformer-based architectures (e.g., RoBERTa, Multilingual BERT).
+   - **Large Language Models**: Assessment of zero-shot and few-shot detection capabilities using local and API-based generative models.
 
 ## 1. Dataset Composition
 
@@ -34,14 +40,17 @@ The meta-dataset is dynamically aggregated from **13 independent, heterogeneous 
 The project is strictly modularized, segregating the Extract-Transform-Load (ETL) data pipeline from the Machine Learning experimental framework:
 
 ```text
-tfm_smishing-detection/
+smishing-detection/
 ├── data/       # Raw data sources and processed master datasets
 ├── docs/       # Extended academic documentation and data dictionary
-├── output/     # Results, metrics, and generated ML artifacts
+├── results/    # Results, metrics, confusion matrices and generated artifacts
 ├── scripts/    # Automated shell scripts for task execution
 └── src/        # Main project source code
     ├── dataset/       # Data engineering and ETL pipeline
-    └── experiments/   # Machine learning experimental framework
+    └── experiments/   # Experimental frameworks
+        ├── dl/        # Deep Learning architectures (Transformers)
+        ├── llm/       # Large Language Models evaluations
+        └── ml/        # Traditional Machine Learning baselines
 ```
 
 ## 3. Usage Guide
@@ -64,16 +73,26 @@ python src/dataset/build_metadataset.py --privacy-filter --output data/processed
 python src/dataset/enrich_metadataset.py --input data/processed/metasms_hss_master.csv --output data/processed/metasms_hss_master_enriched.csv
 ```
 
-### 3.2. Machine Learning Framework (Experimentation)
+### 3.2. Experimental Frameworks
 
-The ML framework is designed to execute a comprehensive evaluation grid combining multiple text encoders (BoW, TF-IDF, Word2Vec, FastText) and traditional classifiers (Naive Bayes, Logistic Regression, Random Forest, SVM) on the consolidated MetaSMS dataset using a stratified 80/10/10 split.
+The repository encompasses three core experimental branches evaluated on a stratified 80/10/10 split:
 
+**Traditional Machine Learning (`src/experiments/ml`)**
+Executes evaluation grids combining text encoders (BoW, TF-IDF, Word2Vec, FastText) and classifiers (NB, LR, RF, SVM).
 ```bash
-# Execute the full machine learning evaluation grid
-python -m src.experiments.ml.main --data_root data/processed --out_dir output/ml
+python -m src.experiments.ml.main --data_root data/processed --out_dir results/ml
+```
 
-# Execute the grid on specific datasets with specific models
-python -m src.experiments.ml.main --datasets metasms --encoders tfidf fasttext --classifiers logreg rf
+**Deep Learning (`src/experiments/dl`)**
+Fine-tunes and evaluates robust transformer architectures (e.g., RoBERTa, BERT).
+```bash
+python -m src.experiments.dl.main --data_root data/processed --out_dir results/dl
+```
+
+**Large Language Models (`src/experiments/llm`)**
+Assesses prompt-based detection via local models (e.g., LLaMA, Mistral).
+```bash
+python -m src.experiments.llm.main --data_root data/processed --out_dir results/llm
 ```
 
 ## 4. Installation & Requirements
